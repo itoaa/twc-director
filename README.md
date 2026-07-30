@@ -52,7 +52,7 @@ A/B på transceivern kopplas till TWC:ns RS-485-terminaler. UART: **9600 8N1**.
 
 ```bash
 # Klona din fork (när den ligger på GitHub)
-git clone https://github.com/<DITT-GITHUB-ANVANDARNAMN>/twc-director.git
+git clone https://github.com/itoaa/twc-director.git
 cd twc-director
 
 # Hemligheter
@@ -74,7 +74,7 @@ När forken ligger på GitHub:
 external_components:
   - source:
       type: git
-      url: https://github.com/<DITT-GITHUB-ANVANDARNAMN>/twc-director.git
+      url: https://github.com/itoaa/twc-director.git
       # ref: main   # valfritt: pinna branch/tag
 ```
 
