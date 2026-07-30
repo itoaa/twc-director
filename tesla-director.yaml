@@ -13,8 +13,8 @@ esphome:
   name: tesla-director
   friendly_name: Tesla-Director
   project:
-    name: "Wired Square.Tesla Wall Connector Director"
-    version: "v0.0.1"
+    name: "twc-director.Tesla Wall Connector Director"
+    version: "v0.1.0-fork"
   on_boot:
     priority: 200
     then:
@@ -32,16 +32,25 @@ esphome:
   on_shutdown:
     then:
       - output.turn_off: tcan485_boost_en       # Disable GPIO16 before reset to avoid boot hang
-      
+
 esp32:
   board: esp32dev
   framework:
     type: esp-idf
+  # ESPHome 2026.7+ uses native ESP-IDF toolchain by default.
+  # Uncomment if compile fails with the native toolchain:
+  # toolchain: platformio
 
+# Local component tree in this repo (preferred for development).
+# For HA Device Builder after push, switch to git source pointing at your fork:
+# external_components:
+#   - source:
+#       type: git
+#       url: https://github.com/<DITT-GITHUB-ANVANDARNAMN>/twc-director.git
 external_components:
   - source:
-      type: git
-      url: https://github.com/Wired-Square/esphome-twc-director.git
+      type: local
+      path: components
 
 logger:
   level: VERBOSE
