@@ -146,6 +146,67 @@ git fetch upstream
 git merge upstream/main   # eller rebase
 ```
 
+## Web UI security (HTTP vs HTTPS)
+
+ESPHomes inbyggda `web_server` lyssnar som standard på **HTTP port 80**. Det finns **inget officiellt stöd för TLS/HTTPS direkt på enheten** (öppen feature request: [esphome/feature-requests#2432](https://github.com/esphome/feature-requests/issues/2432)).
+
+### Policy i den här forken
+
+**Aktivera inte `web_server.auth` över ren HTTP.**  
+Lösenord (Basic) eller auth-trafik skickas då på en okrypterad länk. Vi anser att det är bättre med **ingen web-auth** och att lita på nätverkssegmentering än att lura sig själv med “lösenordsskydd” i klartext.
+
+Exempel-configen (`tesla-director.yaml`) har därför **ingen** `auth:` under `web_server:`.
+
+### Praktiska alternativ
+
+| Alternativ | Kryptering | Auth | Kommentar |
+|------------|------------|------|-----------|
+| **Ingen auth + IoT-VLAN** (default här) | Nej | Nej | Enklast. Styr via Home Assistant API (som *är* krypterad). Web-UI bara på betrodd LAN. |
+| **HTTP Digest-auth** | Nej (hela UI:t är fortfarande HTTP) | Ja | Lösenordet skickas *inte* i klartext (bara challenge/hash). UI och REST-trafik är fortfarande synliga. Bättre än Basic, sämre än HTTPS. |
+| **HTTP Basic-auth** | Nej | Ja | **Undvik.** Lösenordet går Base64-kodat (lätt att avkoda) på varje request. |
+| **Reverse proxy med HTTPS** (nginx, Caddy, Traefik, HA proxy) | Ja (till klienten) | På proxyn | Rätt sätt om du vill ha lösenord + webbläsare. Enheten bakom proxyn kan fortsätta prata HTTP internt på isolerat nät. |
+| **Stäng av web_server** | — | — | Bäst om du bara behöver HA. Kommentera bort `web_server:` / `captive_portal:` om du inte behöver dem. |
+
+### Reverse proxy (rekommenderat om du vill ha lösenord)
+
+1. Ge enheten fast IP på IoT-nätet.
+2. Terminera TLS på t.ex. Caddy/nginx med giltigt cert (Let’s Encrypt eller intern CA).
+3. Proxyn kräver auth (eller mTLS) och proxar till `http://tesla-director:80`.
+4. Lämna **ingen** `auth:` på ESPHome-enheten (undvik dubbel-auth och credential-läckage på sista hoppet om det inte är isolerat).
+
+Exempel (Caddy, förenklat):
+
+```text
+tesla-director.example.com {
+    reverse_proxy 192.168.30.50:80
+    basicauth {
+        admin $2a$14$...hashed...
+    }
+}
+```
+
+### Om du ändå vill ha auth direkt på enheten (HTTP)
+
+Använd **digest**, aldrig basic:
+
+```yaml
+web_server:
+  port: 80
+  auth:
+    type: digest   # lösenord skickas inte i klartext; UI är fortfarande HTTP
+    username: !secret web_username
+    password: !secret web_password
+```
+
+Det skyddar **inte** mot avlyssning av sensorvärden/kommandon i UI:t — bara mot att själva lösenordssträngen läcker.
+
+### Vad som redan är krypterat
+
+- **Home Assistant API** (`api.encryption`) – den vanliga styrvägen.
+- **OTA** (lösenordsskyddad native OTA) – separat från web-UI.
+
+Web-UI:t är främst för felsökning; produktionsstyrning bör gå via HA.
+
 ## Felsökning
 
 1. **Ingen kommunikation** – A/B, GND, enable-pinnar, 9600 8N1

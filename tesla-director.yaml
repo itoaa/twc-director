@@ -78,11 +78,17 @@ wifi:
     ssid: "Tesla-Director Fallback Hotspot"
     password: !secret wifi_hotspot_password
 
+# Web UI over plain HTTP only (ESPHome has no built-in HTTPS on the device).
+# Do NOT enable auth: on HTTP — Basic/Digest credentials or challenges still
+# travel on an unencrypted channel; Basic even puts the password in Base64.
+# Prefer: no auth + trusted LAN / IoT VLAN, or terminate TLS at a reverse proxy
+# and put auth there. See README "Web UI security".
 web_server:
   port: 80
-  auth:
-    username: !secret web_username
-    password: !secret web_password
+  # auth:   # only if you terminate HTTPS in front of the device
+  #   type: digest
+  #   username: !secret web_username
+  #   password: !secret web_password
 
 captive_portal:
     
