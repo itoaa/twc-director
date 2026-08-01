@@ -1,0 +1,86 @@
+# Minimal compile-smoke config for local/CI experiments.
+# Primary CI uses tesla-director.yaml + secrets.yaml from the workflow.
+
+substitutions:
+  global_max_current: "48"
+  global_twc_max_current: "32"
+  master_addr: "0xF00D"
+  twc_0_name: "CI Slot 0"
+  twc_0_initial_current: "15"
+  twc_0_max_current: "32"
+
+esphome:
+  name: twc-director-ci
+  friendly_name: TWC Director CI
+  project:
+    name: "twc-director.CI"
+    version: "ci"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: "ci-ssid"
+  password: "ci-password-123456"
+
+uart:
+  id: twc_uart
+  tx_pin: GPIO22
+  rx_pin: GPIO21
+  baud_rate: 9600
+  stop_bits: 1
+  parity: NONE
+
+twc_director:
+  id: twc_component
+  uart_id: twc_uart
+  addr: ${master_addr}
+  global_max_current: ${global_max_current}
+  global_twc_max_current: ${global_twc_max_current}
+  master_mode:
+    id: twc_master_mode
+  charging_count:
+  link_ok:
+    name: RS-485 Link
+  evse:
+    - name: ${twc_0_name}
+      twc_online:
+      firmware_version:
+      meter_current_phase_a:
+        name: ${twc_0_name} Current
+      meter_voltage_phase_a:
+        name: ${twc_0_name} Voltage
+      meter_energy_session:
+      meter_energy_total:
+      serial_number:
+      vehicle_connected:
+      vehicle_vin:
+      contactor:
+      contactor_status:
+      available_current_sensor:
+      max_current:
+        id: twc_0_max_current_num
+      max_current_sensor:
+      initial_current:
+        id: twc_0_initial_current_num
+      session_current:
+      session_current_sensor:
+      mode:
+      status_text:
+      status_log:

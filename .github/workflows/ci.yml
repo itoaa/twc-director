@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile ESPHome ${{ matrix.esphome }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        esphome:
+          - "2026.7.3"
+          - "latest"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write CI secrets
+        run: |
+          cat > secrets.yaml <<'EOF'
+          wifi_ssid: "ci-ssid"
+          wifi_password: "ci-password-123456"
+          wifi_hotspot_password: "ci-hotspot-123456"
+          tesla_director_api_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+          tesla_director_ota_password: "ci-ota-password"
+          web_username: "ci"
+          web_password: "ci-web-password"
+          EOF
+          # Strip accidental leading indentation from the heredoc above
+          sed -i 's/^[[:space:]]*//' secrets.yaml
+          cat secrets.yaml
+
+      - name: Build firmware
+        uses: esphome/build-action@v8.0.0
+        with:
+          yaml-file: tesla-director.yaml
+          version: ${{ matrix.esphome }}

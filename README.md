@@ -17,6 +17,9 @@ Den här forken är arbetsytan där vi kan fixa kompatibilitet och lägga till e
 | Upstream | https://github.com/Wired-Square/esphome-twc-director |
 | Licens | MIT (behåller copyright från Wired Square + egna ändringar) |
 | Mål | Tesla Gen2 Wall Connector (inte Gen3) |
+| CI | GitHub Actions kompilerar `tesla-director.yaml` mot ESPHome **2026.7.3** och `latest` |
+
+[![CI](https://github.com/itoaa/twc-director/actions/workflows/ci.yml/badge.svg)](https://github.com/itoaa/twc-director/actions/workflows/ci.yml)
 
 ## Översikt
 
