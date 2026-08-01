@@ -7,8 +7,10 @@
 // extern "C" so the symbols match the headers.
 
 extern "C" {
-#include "twc/twc_core.c"
-#include "twc/twc_device.c"
-#include "twc/twc_frame.c"
-#include "twc/twc_protocol.c"
+// Pull C sources in via full ESPHome component paths (works with native ESP-IDF
+// toolchain; short "twc/..." includes require -I flags that no longer apply).
+#include "esphome/components/twc_director/twc/twc_core.c"
+#include "esphome/components/twc_director/twc/twc_device.c"
+#include "esphome/components/twc_director/twc/twc_frame.c"
+#include "esphome/components/twc_director/twc/twc_protocol.c"
 }

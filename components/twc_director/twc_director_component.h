@@ -14,9 +14,11 @@
 #include "esphome/components/button/button.h"
 
 extern "C" {
-#include "twc/twc_frame.h"
-#include "twc/twc_core.h"
-#include "twc/twc_protocol.h"
+// Full component-relative paths so native ESP-IDF toolchain (ESPHome 2026.7+)
+// finds headers without relying on cg.add_build_flag("-I...").
+#include "esphome/components/twc_director/twc/twc_frame.h"
+#include "esphome/components/twc_director/twc/twc_core.h"
+#include "esphome/components/twc_director/twc/twc_protocol.h"
 }
 
 namespace esphome {
