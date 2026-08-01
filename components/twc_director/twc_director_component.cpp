@@ -103,17 +103,21 @@ void TWCDirectorComponent::setup() {
   twc_core_set_master_address(&this->core_, this->master_address_);
   twc_core_set_online_timeout(&this->core_, 15000);
   
-  if (this->global_max_current_a_ > 0.0f) {
-    twc_core_set_global_max_current(&this->core_, this->global_max_current_a_);
-    ESP_LOGI(TAG, "Global max current (safety limit): %.1fA", this->global_max_current_a_);
+  // global_max_current is required in YAML (positive). Keep a defensive clamp.
+  if (this->global_max_current_a_ <= 0.0f) {
+    ESP_LOGE(TAG, "global_max_current must be > 0 (safety budget). Forcing 0A allocations.");
+    this->global_max_current_a_ = 0.0f;
+  }
+  twc_core_set_global_max_current(&this->core_, this->global_max_current_a_);
+  ESP_LOGI(TAG, "Global max current (safety limit): %.1fA", this->global_max_current_a_);
 
-    // Initialize global max control entity to the compile-time value if provided
-    if (this->global_max_current_control_ && !this->global_max_current_control_->has_state()) {
-      this->global_max_current_control_->publish_state(this->global_max_current_a_);
-    }
+  // Initialize global max control entity to the compile-time value if provided
+  if (this->global_max_current_control_ && !this->global_max_current_control_->has_state()) {
+    this->global_max_current_control_->publish_state(this->global_max_current_a_);
   }
 
   ESP_LOGI(TAG, "EVSE max current limit: %.1fA", this->evse_max_current_limit_a_);
+  ESP_LOGI(TAG, "Safety: contactor commands require master mode; switch UI follows bus current");
 
   // Wire callbacks
   twc_core_set_tx_callback(&this->core_, &tx_callback_shim, this);
@@ -397,11 +401,29 @@ void TWCDirectorComponent::update_master_mode_(uint32_t now) {
   bool enabled = this->master_mode_switch_->state;
   
   if (enabled != this->master_mode_last_state_) {
-    twc_core_set_master_mode(&this->core_, enabled);
-    
     if (enabled) {
+      twc_core_set_master_mode(&this->core_, true);
       ESP_LOGI(TAG, "Master mode ENABLED (addr=0x%04X)", this->master_address_);
     } else {
+      // Fail-safe while we can still TX as master: zero session setpoints and
+      // request contactors open, then leave master mode (no further TX).
+      ESP_LOGI(TAG, "Master mode disabling — fail-safe: 0A session + open contactors");
+      for (auto &evse : this->evse_entries_) {
+        if (!evse.bound) continue;
+        twc_core_set_desired_session_current(&this->core_, evse.address, 0.0f);
+        if (evse.session_current) {
+          evse.session_current->publish_state(0.0f);
+        }
+        // Best-effort open (master still true until set_master_mode below)
+        uint8_t frame[16];
+        size_t len = twc_build_contactor_frame(this->master_address_, evse.address,
+                                               TWC_CMD_OPEN_CONTACTORS,
+                                               frame, sizeof(frame));
+        if (len > 0) {
+          this->handle_tx_frame_(frame, len);
+        }
+      }
+      twc_core_set_master_mode(&this->core_, false);
       ESP_LOGI(TAG, "Master mode DISABLED");
     }
     
@@ -625,10 +647,10 @@ float TWCDirectorComponent::compute_session_amps_(const twc_device_t *dev) const
 
 void TWCDirectorComponent::handle_current_number_control(
     uint16_t address, float value, TWCDirectorCurrentNumber::CurrentType type) {
-  // Special handling for global max current control
+  // Special handling for global max current control — must update C core so
+  // session reconciliation uses the new budget (not only the number entity).
   if (type == TWCDirectorCurrentNumber::TYPE_GLOBAL_MAX) {
-    // Clamp to safety maximum
-    if (value < 0.0f) value = 0.0f;
+    if (value < 1.0f) value = 1.0f;
     if (this->global_max_current_a_ > 0.0f && value > this->global_max_current_a_) {
       value = this->global_max_current_a_;
     }
@@ -636,8 +658,7 @@ void TWCDirectorComponent::handle_current_number_control(
     ESP_LOGI(TAG, "Global max current control: %.1fA (safety max: %.1fA)",
              value, this->global_max_current_a_);
 
-    // The value is stored in the number entity itself, we just validate it here
-    // The get_effective_global_max_current_() helper will read it when needed
+    twc_core_set_global_max_current(&this->core_, value);
     return;
   }
 
@@ -646,9 +667,12 @@ void TWCDirectorComponent::handle_current_number_control(
     return;
   }
 
-  // Clamp to reasonable range
+  // Clamp to per-EVSE hardware/config limit (never a hard-coded 80A)
   if (value < 0.0f) value = 0.0f;
-  float max_val = (type == TWCDirectorCurrentNumber::TYPE_MAX) ? 80.0f : this->evse_max_current_limit_a_;
+  float max_val = this->evse_max_current_limit_a_;
+  if (max_val <= 0.0f) {
+    max_val = 32.0f;
+  }
   if (value > max_val) value = max_val;
 
   const char *type_str = (type == TWCDirectorCurrentNumber::TYPE_MAX) ? "max" :
@@ -831,10 +855,12 @@ TWCDirectorComponent::EvseEntry *TWCDirectorComponent::find_evse_(uint16_t addre
 // =============================================================================
 
 void TWCDirectorContactorSwitch::write_state(bool state) {
+  // Do not optimistically publish the requested state. Contactor status is
+  // inferred from delivered current on the bus (see update_evse_sensors_).
+  // Publishing here lied to HA when master mode was off or TX failed.
   if (this->parent_) {
     this->parent_->request_contactor_state(this->address_, state);
   }
-  this->publish_state(state);
 }
 
 void TWCDirectorMasterModeSwitch::write_state(bool state) {
@@ -858,17 +884,22 @@ void TWCDirectorCurrentNumber::control(float value) {
   ESP_LOGI(TAG, "CurrentNumber::control called: addr=0x%04X value=%.1fA type=%s parent=%p",
            this->address_, value, type_str, (void*)this->parent_);
 
+  float applied = value;
   if (this->parent_) {
     // Global max doesn't need a valid address
     if (this->type_ == TYPE_GLOBAL_MAX || this->address_ != 0) {
       this->parent_->handle_current_number_control(this->address_, value, this->type_);
+      // Re-read clamps applied in parent for global max
+      if (this->type_ == TYPE_GLOBAL_MAX) {
+        if (applied < 1.0f) applied = 1.0f;
+      }
     } else {
       ESP_LOGW(TAG, "CurrentNumber::control: address is 0 for non-global type!");
     }
   } else {
     ESP_LOGW(TAG, "CurrentNumber::control: parent is null!");
   }
-  this->publish_state(value);
+  this->publish_state(applied);
 }
 
 void TWCDirectorCurrentButton::press_action() {
@@ -886,6 +917,12 @@ void TWCDirectorComponent::request_current_change(uint16_t address,
                                                    TWCDirectorCurrentButton::ButtonType type) {
   if (!this->master_mode_enabled()) {
     ESP_LOGW(TAG, "Current change request ignored: master mode not enabled");
+    return;
+  }
+
+  EvseEntry *evse = this->find_evse_(address);
+  if (evse && !evse->enabled) {
+    ESP_LOGW(TAG, "Current change request ignored: EVSE 0x%04X disabled", address);
     return;
   }
 
@@ -933,6 +970,29 @@ void TWCDirectorComponent::set_evse_enabled(uint16_t address, bool enabled) {
 }
 
 void TWCDirectorComponent::request_contactor_state(uint16_t address, bool closed) {
+  // Safety: never send contactor commands unless we are the active master.
+  if (!this->master_mode_enabled()) {
+    ESP_LOGW(TAG,
+             "Contactor %s rejected for TWC 0x%04X: master mode not enabled",
+             closed ? "CLOSE" : "OPEN", address);
+    // Restore switch UI to last bus-synced state (if any)
+    EvseEntry *evse = this->find_evse_(address);
+    if (evse && evse->contactor) {
+      evse->contactor->publish_state(evse->last_contactor_switch_state);
+    }
+    return;
+  }
+
+  EvseEntry *evse = this->find_evse_(address);
+  if (evse && !evse->enabled) {
+    ESP_LOGW(TAG, "Contactor %s rejected for TWC 0x%04X: EVSE disabled",
+             closed ? "CLOSE" : "OPEN", address);
+    if (evse->contactor) {
+      evse->contactor->publish_state(evse->last_contactor_switch_state);
+    }
+    return;
+  }
+
   ESP_LOGI(TAG, "Contactor %s request for TWC 0x%04X",
            closed ? "CLOSE" : "OPEN", address);
 
@@ -946,9 +1006,13 @@ void TWCDirectorComponent::request_contactor_state(uint16_t address, bool closed
 
   if (len > 0) {
     this->handle_tx_frame_(frame, len);
+    // UI remains at last confirmed bus state until metrics sync updates it.
   } else {
     ESP_LOGW(TAG, "Failed to build contactor %s frame for TWC 0x%04X",
              closed ? "CLOSE" : "OPEN", address);
+    if (evse && evse->contactor) {
+      evse->contactor->publish_state(evse->last_contactor_switch_state);
+    }
   }
 }
 

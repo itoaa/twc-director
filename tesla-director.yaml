@@ -14,7 +14,7 @@ esphome:
   friendly_name: Tesla-Director
   project:
     name: "twc-director.Tesla Wall Connector Director"
-    version: "v0.1.0-fork"
+    version: "v0.2.0-safe"
   on_boot:
     priority: 200
     then:
@@ -22,13 +22,15 @@ esphome:
       - output.turn_on: tcan485_rs485_shutdown  # GPIO19, shutdown disable (HIGH = enable)
       - output.turn_on: tcan485_rs485_re        # GPIO17, receiver enable
       - delay: 100ms                            # Let RS-485 transceiver stabilize
-      - switch.turn_on: twc_master_mode
+      # Safety: do NOT auto-enable master mode. Turn on "Master Mode" in HA
+      # only when the bus is ready and you intend to control TWCs.
       - number.set:
           id: twc_0_max_current_num
           value: ${twc_0_max_current}
       - number.set:
           id: twc_0_initial_current_num
           value: ${twc_0_initial_current}
+      # Session current stays 0 until you raise it or charging starts
   on_shutdown:
     then:
       - output.turn_off: tcan485_boost_en       # Disable GPIO16 before reset to avoid boot hang

@@ -146,6 +146,17 @@ git fetch upstream
 git merge upstream/main   # eller rebase
 ```
 
+## Safety profile (P0/P1)
+
+Software hardening in this fork (see [docs/SECURITY.md](docs/SECURITY.md)):
+
+- **`global_max_current` is required** and must be `> 0`
+- Runtime global-max number **updates the C core** (session reconciliation)
+- Contactor commands require **master mode** + EVSE enabled; UI follows bus current
+- **Master mode off at boot** (enable explicitly in HA)
+- Master disable → fail-safe **0 A session + open contactors**, then stop TX
+- Production example: **`tesla-director-safe.yaml`** (no `web_server`)
+
 ## Web UI security (HTTP vs HTTPS)
 
 ESPHomes inbyggda `web_server` lyssnar som standard på **HTTP port 80**. Det finns **inget officiellt stöd för TLS/HTTPS direkt på enheten** (öppen feature request: [esphome/feature-requests#2432](https://github.com/esphome/feature-requests/issues/2432)).

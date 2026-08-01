@@ -166,7 +166,8 @@ CONFIG_SCHEMA = (
                 switch.switch_schema(TWCDirectorMasterModeSwitch),
             ),
             cv.Required(CONF_MASTER_ADDR): cv.hex_int,
-            cv.Optional(CONF_GLOBAL_MAX_CURRENT): cv.positive_float,
+            # Required safety budget across all EVSEs (amps). Must be > 0.
+            cv.Required(CONF_GLOBAL_MAX_CURRENT): cv.positive_float,
             cv.Optional(CONF_EVSE_MAX_CURRENT_LIMIT): cv.positive_float,
 
             # Optional number entity for runtime global max current control
@@ -354,9 +355,8 @@ async def to_code(config):
     master_addr = config[CONF_MASTER_ADDR]
     cg.add(var.set_master_address(master_addr))
 
-    if CONF_GLOBAL_MAX_CURRENT in config:
-        global_max = config[CONF_GLOBAL_MAX_CURRENT]
-        cg.add(var.set_global_max_current(global_max))
+    global_max = config[CONF_GLOBAL_MAX_CURRENT]
+    cg.add(var.set_global_max_current(global_max))
 
     if CONF_EVSE_MAX_CURRENT_LIMIT in config:
         evse_max = config[CONF_EVSE_MAX_CURRENT_LIMIT]
@@ -377,11 +377,11 @@ async def to_code(config):
     global_max_control = cg.nullptr
     if CONF_GLOBAL_MAX_CURRENT_CONTROL in config:
         global_max_conf = config[CONF_GLOBAL_MAX_CURRENT_CONTROL]
-        # Get the safety maximum from CONF_GLOBAL_MAX_CURRENT (defaults to 80A if not set)
-        safety_max = config.get(CONF_GLOBAL_MAX_CURRENT, 80.0)
+        # Runtime control cannot exceed the compile-time safety maximum
+        safety_max = config[CONF_GLOBAL_MAX_CURRENT]
         global_max_control = await number.new_number(
             global_max_conf,
-            min_value=0.0,
+            min_value=1.0,
             max_value=safety_max,
             step=1.0,
         )
