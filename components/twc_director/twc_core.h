@@ -15,6 +15,11 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -328,3 +333,7 @@ void twc_core_set_device_enabled(twc_core_t *core,
 // Check if a device is enabled for master mode communication.
 bool twc_core_get_device_enabled(const twc_core_t *core,
                                   uint16_t address);
+
+#ifdef __cplusplus
+}
+#endif

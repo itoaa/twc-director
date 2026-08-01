@@ -348,10 +348,6 @@ async def to_code(config):
     # Get the UART parent (the RS-485 UART you configured in YAML)
     uart_comp = await cg.get_variable(config[CONF_UART_ID])
 
-    # Note: do not use cg.add_build_flag("-I...") for twc/ headers. With ESPHome
-    # 2026.7+ native ESP-IDF toolchain those flags are unreliable. Sources use
-    # esphome/components/twc_director/twc/... includes instead.
-
     # Create the C++ TWCDirectorComponent instance, passing the UART
     var = cg.new_Pvariable(config[CONF_ID], uart_comp)
     # Set the master address (the TWC Director's own ID on the RS-485 bus)

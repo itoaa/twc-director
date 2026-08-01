@@ -12,9 +12,9 @@
 #include <math.h>
 
 extern "C" {
-#include "esphome/components/twc_director/twc/twc_frame.h"
-#include "esphome/components/twc_director/twc/twc_protocol.h"
-#include "esphome/components/twc_director/twc/twc_core.h"
+#include "esphome/components/twc_director/twc_frame.h"
+#include "esphome/components/twc_director/twc_protocol.h"
+#include "esphome/components/twc_director/twc_core.h"
 }
 
 namespace esphome {

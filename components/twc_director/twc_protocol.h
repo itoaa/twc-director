@@ -47,6 +47,11 @@ if (twc_decode_frame(rx_frame, rx_len, &header, &payload, &payload_len)) {
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -414,3 +419,7 @@ size_t twc_build_contactor_frame(uint16_t master_address,
 
 // Convert charge state enum to human-readable string
 const char *twc_charge_state_to_string(twc_charge_state_t state);
+
+#ifdef __cplusplus
+}
+#endif

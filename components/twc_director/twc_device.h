@@ -8,6 +8,11 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "twc_protocol.h"
@@ -170,3 +175,7 @@ const char *twc_device_get_vehicle_vin(const twc_device_t *dev);
 // =============================================================================
 
 int twc_device_get_status_code(const twc_device_t *dev);
+
+#ifdef __cplusplus
+}
+#endif

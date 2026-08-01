@@ -118,11 +118,16 @@ twc-director/
 ├── components/twc_director/     # ESPHome external component
 │   ├── __init__.py
 │   ├── twc_director_component.*
-│   └── twc/                     # C-protokollbibliotek (SLIP + TWC)
+│   ├── twc_*.c / twc_*.h        # C-protokollbibliotek (SLIP + TWC)
+│   └── PROTOCOL.md
+├── .github/workflows/ci.yml     # Kompilerar mot ESPHome 2026.7.3 + latest
 ├── tesla-director.yaml          # Exempel-firmwareconfig
 ├── secrets.yaml.example
 └── README.md
 ```
+
+> **OBS (ESPHome 2026.7):** External components kopierar inte undermappar till bygget.
+> Protokollkällorna ligger därför i komponentroten (inte under `twc/`).
 
 ### Git remotes
 

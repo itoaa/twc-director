@@ -5,6 +5,11 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 #include <stddef.h>   // size_t
 #include <stdint.h>   // uint8_t
 #include <stdbool.h>  // bool
@@ -90,3 +95,7 @@ bool twc_frame_encode_slip(const uint8_t *frame,
                            uint8_t *out,
                            size_t out_max,
                            size_t *encoded_len);
+
+#ifdef __cplusplus
+}
+#endif
