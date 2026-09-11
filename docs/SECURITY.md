@@ -55,11 +55,12 @@ that owns RS-485. Treat CSMS as remote admin.
 
 | Control | Requirement |
 |---------|-------------|
-| Transport | `wss` / TLS only |
-| Amp profiles | Wish from CSMS; **hard caps win** |
-| CSMS down | Safe local default |
-| Feature flag | Default **off** |
-| Secrets | Not in git; rotate; physical theft of ESP = credential risk |
-| v1 scope | Global max amp (+ minimal session ops); no remote FW / Reset / Unlock |
+| Transport | `wss://` only (schema + runtime reject `ws://`) |
+| Amp profiles | Wish from CSMS via `apply_external_global_max_a()`; **hard caps win** |
+| CSMS down | `fail_safe_amps` (≤ hard cap), never full open |
+| Feature flag | Default **off** (`enabled: false` / omit block) |
+| Secrets | `ocpp_*` in `secrets.yaml` only; rotate; physical theft of ESP = credential risk |
+| v1 scope | Global max amp + Boot/Heartbeat/Status/MeterValues; **no** RemoteStart/Stop, Reset, Unlock, FW update |
 
-See [OCPP.md](OCPP.md). Lab PoC only until OTA signing and cert lifecycle are proven.
+See [OCPP.md](OCPP.md) and [`components/ocpp_client/README.md`](../components/ocpp_client/README.md).
+Lab PoC only until OTA signing and cert lifecycle are proven.

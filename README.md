@@ -238,11 +238,14 @@ Egna ändringar i denna fork: se git-historik.
 
 ## OCPP 1.6J experiment
 
-On branch `feature/ocpp-1.6` we are exploring **native** OCPP so the director
-node looks like **one Charge Point** and CSMS only sets **global max amp**.
+On branch `feature/ocpp-1.6` we explore **native** OCPP 1.6J (MicroOCPP) so the
+director can speak to a CSMS over **wss** and steer **global max amp only**.
 
 - Design + constraints: [`docs/OCPP.md`](docs/OCPP.md)
-- Component stub: [`components/ocpp_client/`](components/ocpp_client/)
-- Example YAML shape: [`examples/ocpp-fragment.yaml`](examples/ocpp-fragment.yaml)
+- Component: [`components/ocpp_client/`](components/ocpp_client/) (default `enabled: false`)
+- Example fragment: [`examples/ocpp-fragment.yaml`](examples/ocpp-fragment.yaml)
+- Optional CI smoke YAML: [`tesla-director-ocpp.yaml`](tesla-director-ocpp.yaml)
 
-`main` remains the stable ESPHome 2026.7 TWC director without OCPP.
+`main` / default [`tesla-director.yaml`](tesla-director.yaml) stays without OCPP.
+Live CSMS needs `./components/ocpp_client/scripts/fetch_deps.sh` and `ocpp_*` secrets.
+

@@ -1,11 +1,18 @@
-# Example only — do not enable until ocpp_client is implemented.
-# Intended shape for tesla-director-safe + OCPP (default off).
+# Example fragment — merge into a director YAML (not used by default CI).
+# Keep enabled: false until vendor deps are fetched and a lab CSMS is ready.
 
-# ocpp_client:
-#   id: twc_ocpp
-#   enabled: false
-#   csms_url: !secret ocpp_csms_url   # must be wss://
-#   charge_point_id: !secret ocpp_charge_point_id
-#   authorization_key: !secret ocpp_authorization_key
-#   # Maps SetChargingProfile / max amp into director global_max_current
-#   # with hard-cap clamp (never above compile-time / breaker limits).
+ocpp_client:
+  id: twc_ocpp
+  enabled: false
+  twc_director_id: twc_component
+  csms_url: !secret ocpp_csms_url          # must be wss://
+  charge_point_id: !secret ocpp_charge_point_id
+  authorization_key: !secret ocpp_authorization_key
+  fail_safe_amps: 6                        # applied on CSMS disconnect; ≤ hard cap
+  # Optional HA entities
+  connected:
+    name: OCPP CSMS Connected
+  connection_state:
+    name: OCPP Connection State
+  last_applied_amps:
+    name: OCPP Last Applied Global Max
