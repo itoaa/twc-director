@@ -244,7 +244,7 @@ director can speak to a CSMS over **wss** and steer **global max amp only**.
 - Design + constraints: [`docs/OCPP.md`](docs/OCPP.md)
 - Component: [`components/ocpp_client/`](components/ocpp_client/) (default `enabled: false`)
 - Example fragment: [`examples/ocpp-fragment.yaml`](examples/ocpp-fragment.yaml)
-- Optional CI smoke YAML: [`tesla-director-ocpp.yaml`](tesla-director-ocpp.yaml)
+- Optional OCPP YAML (CI-verified `enabled: true`): [`tesla-director-ocpp.yaml`](tesla-director-ocpp.yaml)
 
 `main` / default [`tesla-director.yaml`](tesla-director.yaml) stays without OCPP.
 Live CSMS needs `./components/ocpp_client/scripts/fetch_deps.sh` and `ocpp_*` secrets.

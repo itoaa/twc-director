@@ -1,7 +1,7 @@
 # OCPP 1.6J PoC (native on ESP)
 
 **Branch:** `feature/ocpp-1.6`  
-**Status:** lab experiment — component compiles with OCPP **off** by default; live CSMS needs vendor deps + secrets.
+**Status:** lab experiment — default `tesla-director.yaml` has no OCPP block; `tesla-director-ocpp.yaml` is `enabled: true` and CI-verified (fetch_deps + compile). Live CSMS still needs real secrets + network.
 
 ## Model
 
@@ -31,7 +31,7 @@ Load sharing among Wall Connectors stays local.
 |-------|------|
 | ESPHome component | [`components/ocpp_client/`](../components/ocpp_client/) |
 | Example fragment | [`examples/ocpp-fragment.yaml`](../examples/ocpp-fragment.yaml) |
-| Optional full config | [`tesla-director-ocpp.yaml`](../tesla-director-ocpp.yaml) (`enabled: false` for CI smoke) |
+| Optional full config | [`tesla-director-ocpp.yaml`](../tesla-director-ocpp.yaml) (`enabled: true`; CI runs `fetch_deps.sh` then compiles) |
 | Secrets placeholders | [`secrets.yaml.example`](../secrets.yaml.example) |
 
 ### Director API used
@@ -53,7 +53,7 @@ MicroOCPP + ArduinoJson live under `components/ocpp_client/vendor/` (fetch_deps.
 (sibling layout required by MicroOCPP’s CMake). WSS uses managed component
 `espressif/esp_websocket_client`.
 
-`enabled: false` builds do **not** fetch or link MicroOCPP.
+`enabled: false` / omitted block builds do **not** fetch or link MicroOCPP. CI’s OCPP job fetches deps and compiles `enabled: true`.
 
 ## Hardware
 
@@ -66,7 +66,7 @@ MicroOCPP + ArduinoJson live under `components/ocpp_client/vendor/` (fetch_deps.
 
 1. `cp secrets.yaml.example secrets.yaml` and set `ocpp_csms_url` (`wss://…`), CP id, auth key
 2. Run `fetch_deps.sh`
-3. Set `ocpp_client.enabled: true` in a non-default YAML (keep `tesla-director.yaml` clean)
+3. Use `tesla-director-ocpp.yaml` (`enabled: true`) or set the flag in a non-default YAML (keep `tesla-director.yaml` clean)
 4. Flash, watch logs for BootNotification / Heartbeat
 5. From CSMS, send SetChargingProfile — confirm HA/global max moves but never above hard cap
 6. Disconnect CSMS — confirm fail-safe amps applied

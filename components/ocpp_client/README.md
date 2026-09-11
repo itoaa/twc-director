@@ -29,7 +29,7 @@ See [`examples/ocpp-fragment.yaml`](../../examples/ocpp-fragment.yaml).
 ```yaml
 ocpp_client:
   id: twc_ocpp
-  enabled: false          # keep false until lab CSMS is ready
+  enabled: true           # CI verifies this; use false / omit for default YAML
   twc_director_id: twc_component
   csms_url: !secret ocpp_csms_url
   charge_point_id: !secret ocpp_charge_point_id
@@ -55,8 +55,8 @@ the WSS adapter. Details: [`vendor/README.md`](vendor/README.md).
 
 | Mode | What works |
 |------|------------|
-| `enabled: false` | Component loads, sensors report `disabled`, no MicroOCPP link — CI-safe |
-| `enabled: true` + deps | WSS to CSMS, BootNotification/Heartbeat/SmartCharging path — **lab** |
+| `enabled: false` / omit block | Component loads (if present), sensors report `disabled`, no MicroOCPP link — default YAML CI |
+| `enabled: true` + deps | Linked MicroOCPP path — **CI-verified** via `tesla-director-ocpp.yaml` + `fetch_deps.sh` |
 | Live CSMS | Needs valid secrets, S3-class flash/RAM recommended, network to CSMS |
 
 Remaining lab hardening: CA pin / custom client certs, MO flash store vs ESPHome FS,

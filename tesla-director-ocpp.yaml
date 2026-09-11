@@ -172,11 +172,11 @@ twc_director:
       status_log:
 
 
-# OCPP PoC — default OFF so CI can compile without MicroOCPP vendor trees.
-# Set enabled: true only after ./components/ocpp_client/scripts/fetch_deps.sh
+# OCPP PoC — enabled:true; CI runs fetch_deps.sh then compiles this file.
+# Default tesla-director.yaml stays OCPP-free. Secrets via !secret only.
 ocpp_client:
   id: twc_ocpp
-  enabled: false
+  enabled: true
   twc_director_id: twc_component
   csms_url: !secret ocpp_csms_url
   charge_point_id: !secret ocpp_charge_point_id
