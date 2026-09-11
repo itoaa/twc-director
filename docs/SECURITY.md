@@ -47,3 +47,19 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 
 Prefer private disclosure for security issues that could cause unsafe charge
 limits or remote contactor abuse on shared networks.
+
+## OCPP experiment (`feature/ocpp-1.6`)
+
+Native OCPP on the ESP moves TLS, WebSocket, and CSMS trust onto the same MCU
+that owns RS-485. Treat CSMS as remote admin.
+
+| Control | Requirement |
+|---------|-------------|
+| Transport | `wss` / TLS only |
+| Amp profiles | Wish from CSMS; **hard caps win** |
+| CSMS down | Safe local default |
+| Feature flag | Default **off** |
+| Secrets | Not in git; rotate; physical theft of ESP = credential risk |
+| v1 scope | Global max amp (+ minimal session ops); no remote FW / Reset / Unlock |
+
+See [OCPP.md](OCPP.md). Lab PoC only until OTA signing and cert lifecycle are proven.
