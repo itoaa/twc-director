@@ -1,18 +1,42 @@
 # Example fragment — merge into a director YAML (not used by default CI).
-# Keep enabled: false until vendor deps are fetched and a lab CSMS is ready.
+# Secrets via !secret only. Runtime HA entities can override URL/id/key and
+# enable/disable without reflash. Lab remote-* flags DEFAULT OFF.
 
 ocpp_client:
   id: twc_ocpp
-  enabled: false
+  enabled: false                 # compile default; HA enable_switch can start later if linked
   twc_director_id: twc_component
   csms_url: !secret ocpp_csms_url          # must be wss://
   charge_point_id: !secret ocpp_charge_point_id
   authorization_key: !secret ocpp_authorization_key
-  fail_safe_amps: 6                        # applied on CSMS disconnect; ≤ hard cap
-  # Optional HA entities
+  fail_safe_amps: 6                        # applied on CSMS disconnect / RemoteStop/Reset; ≤ hard cap
+
+  # Status
   connected:
     name: OCPP CSMS Connected
   connection_state:
     name: OCPP Connection State
   last_applied_amps:
     name: OCPP Last Applied Global Max
+
+  # Runtime control (no rebuild)
+  enable_switch:
+    name: OCPP Enable
+  csms_url_text:
+    name: OCPP CSMS URL
+  charge_point_id_text:
+    name: OCPP Charge Point ID
+  authorization_key_text:
+    name: OCPP Authorization Key
+  fail_safe_button:
+    name: "OCPP återställ till fail-safe"
+
+  # Lab remotes — DEFAULT OFF. Enabling against public cloud CSMS needs new risk accept.
+  allow_remote_start:
+    name: OCPP Allow RemoteStart (lab)
+  allow_remote_stop:
+    name: OCPP Allow RemoteStop (lab)
+  allow_reset:
+    name: OCPP Allow Reset (lab)
+  allow_unlock:
+    name: OCPP Allow Unlock (lab)

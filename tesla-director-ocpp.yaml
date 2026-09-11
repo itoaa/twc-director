@@ -172,8 +172,9 @@ twc_director:
       status_log:
 
 
-# OCPP PoC — enabled:true; CI runs fetch_deps.sh then compiles this file.
+# OCPP PoC — enabled:true links MicroOCPP (CI: fetch_deps + compile).
 # Default tesla-director.yaml stays OCPP-free. Secrets via !secret only.
+# HA entities override URL/id/key and can disable without rebuild.
 ocpp_client:
   id: twc_ocpp
   enabled: true
@@ -188,3 +189,21 @@ ocpp_client:
     name: OCPP Connection State
   last_applied_amps:
     name: OCPP Last Applied Global Max
+  enable_switch:
+    name: OCPP Enable
+  csms_url_text:
+    name: OCPP CSMS URL
+  charge_point_id_text:
+    name: OCPP Charge Point ID
+  authorization_key_text:
+    name: OCPP Authorization Key
+  fail_safe_button:
+    name: "OCPP återställ till fail-safe"
+  allow_remote_start:
+    name: OCPP Allow RemoteStart (lab)
+  allow_remote_stop:
+    name: OCPP Allow RemoteStop (lab)
+  allow_reset:
+    name: OCPP Allow Reset (lab)
+  allow_unlock:
+    name: OCPP Allow Unlock (lab)

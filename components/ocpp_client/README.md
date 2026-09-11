@@ -1,63 +1,36 @@
 # ocpp_client (ESPHome external component)
 
 Native **OCPP 1.6J** Charge Point client for the TWC Director. Embeds
-[MicroOCPP](https://github.com/matth-x/MicroOcpp) and maps Smart Charging /
-max-amp configuration onto `twc_director` **global max only**.
+[MicroOCPP](https://github.com/matth-x/MicroOcpp) and maps Smart Charging onto
+`twc_director` **global + per-connector** amp wishes (hard caps win).
 
 ## Safety (CISO)
 
 | Rule | Behaviour |
 |------|-----------|
-| Transport | `csms_url` must be `wss://` (schema + runtime reject `ws://`) |
-| Secrets | `authorization_key` / URL / CP id from `secrets.yaml` — never commit |
-| Default | `enabled: false` (or omit the block entirely) |
-| Hard caps | CSMS wishes go through `apply_external_global_max_a()` → clamp to YAML/compile hard cap |
-| CSMS down | Applies `fail_safe_amps` (≤ hard cap), **not** full open |
-| Scope | One Charge Point; no per-connector amp; load sharing stays in `twc_director` |
+| Transport | `csms_url` must be `wss://` (YAML + HA text reject `ws://`) |
+| Secrets | `!secret` and/or HA password text → NVS; never commit |
+| Default | `enabled: false` / omit block; HA enable can stop cleanly |
+| Hard caps | CSMS wishes clamped by director hard cap / per-EVSE max |
+| CSMS down | `fail_safe_amps` (≤ hard cap) |
+| Remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF**; UpdateFirmware **always rejected** |
+| Cloud | Lab = LAN/VPN CSMS; public cloud remotes need new risk accept |
 
-### v1 implemented / handled
+## HA entities
 
-- BootNotification, Heartbeat, StatusNotification, MeterValues — via MicroOCPP when `enabled: true` and vendor deps present
-- `SetChargingProfile` → Smart Charging current output → global max (clamped)
-- `ChangeConfiguration` keys `ChargePointMaxCurrent` / `MaxCurrent` / `TwcGlobalMaxCurrent` → global max
-- Explicitly **ignored/rejected**: RemoteStart/Stop, Reset, UnlockConnector, UpdateFirmware
+See [`examples/ocpp-fragment.yaml`](../../examples/ocpp-fragment.yaml): enable switch,
+CSMS URL / CP id / auth key texts, status sensors, fail-safe button, lab remote flags.
 
-## YAML
+## Metering / status
 
-See [`examples/ocpp-fragment.yaml`](../../examples/ocpp-fragment.yaml).
+Bridge registers MicroOCPP inputs from `twc_director` telemetry (A/V/Wh/power,
+plugged/occupied/ev_ready/evse_ready). Gen2→OCPP status is approximate.
 
-```yaml
-ocpp_client:
-  id: twc_ocpp
-  enabled: true           # CI verifies this; use false / omit for default YAML
-  twc_director_id: twc_component
-  csms_url: !secret ocpp_csms_url
-  charge_point_id: !secret ocpp_charge_point_id
-  authorization_key: !secret ocpp_authorization_key
-  fail_safe_amps: 6
-```
-
-Default `tesla-director.yaml` does **not** include this block (CI stays green).
-
-## MicroOCPP vendoring
+## Vendoring
 
 ```bash
+# First time / after pin change:
 ./components/ocpp_client/scripts/fetch_deps.sh
 ```
 
-Places `vendor/MicroOcpp` + `vendor/ArduinoJson` as ESP-IDF sibling components.
-Runtime uses committed `vendor/ocpp_mocpp_bridge` (C API) so ArduinoJson does not
-collide with ESPHome’s JSON stack.
-Also pulls managed component `espressif/esp_websocket_client` at compile time for
-the WSS adapter. Details: [`vendor/README.md`](vendor/README.md).
-
-## Lab vs CI
-
-| Mode | What works |
-|------|------------|
-| `enabled: false` / omit block | Component loads (if present), sensors report `disabled`, no MicroOCPP link — default YAML CI |
-| `enabled: true` + deps | Linked MicroOCPP path — **CI-verified** via `tesla-director-ocpp.yaml` + `fetch_deps.sh` |
-| Live CSMS | Needs valid secrets, S3-class flash/RAM recommended, network to CSMS |
-
-Remaining lab hardening: CA pin / custom client certs, MO flash store vs ESPHome FS,
-Mongoose alternative if `esp_websocket_client` + ESPHome WiFi needs tuning on a board.
+Details: [`vendor/README.md`](vendor/README.md), [`docs/OCPP.md`](../../docs/OCPP.md).

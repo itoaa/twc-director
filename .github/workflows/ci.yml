@@ -55,7 +55,33 @@ jobs:
         run: ./components/ocpp_client/scripts/fetch_deps.sh
 
       - name: Build firmware
+        id: build
         uses: esphome/build-action@v8.0.0
         with:
           yaml-file: ${{ matrix.yaml }}
           version: ${{ matrix.esphome }}
+
+      - name: Firmware size (OCPP)
+        if: matrix.ocpp
+        run: |
+          set -euo pipefail
+          echo "::group::Firmware size / RAM hints"
+          echo "build-action outputs:"
+          echo '${{ toJSON(steps.build.outputs) }}'
+          # Common locations from esphome/build-action / PlatformIO
+          find . -type f \( -name '*.bin' -o -name 'firmware.map' -o -name '*size*.txt' \) \
+            ! -path './.git/*' 2>/dev/null | head -80 || true
+          echo "---- bin sizes ----"
+          find . -type f -name '*.bin' ! -path './.git/*' -printf '%s %p\n' 2>/dev/null | sort -nr | head -20 || true
+          echo "---- ESPHome / PIO memory lines (if present in outputs dir) ----"
+          if [ -d .esphome ]; then
+            rg -n "RAM:|Flash:|Used|DRAM|IRAM|memory" .esphome -g '*.txt' -g '*.log' 2>/dev/null | head -40 || true
+          fi
+          if [ -d .pio ]; then
+            rg -n "RAM:|Flash:|Used|DRAM|IRAM" .pio -g '*.txt' -g '*.map' 2>/dev/null | head -40 || true
+          fi
+          # Also scan GitHub Action workspace output from build-action
+          if [ -d "${{ runner.temp }}" ]; then
+            find "${{ runner.temp }}" -name '*.bin' -printf '%s %p\n' 2>/dev/null | sort -nr | head -10 || true
+          fi
+          echo "::endgroup::"

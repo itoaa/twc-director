@@ -55,12 +55,15 @@ that owns RS-485. Treat CSMS as remote admin.
 
 | Control | Requirement |
 |---------|-------------|
-| Transport | `wss://` only (schema + runtime reject `ws://`) |
-| Amp profiles | Wish from CSMS via `apply_external_global_max_a()`; **hard caps win** |
+| Transport | `wss://` only (schema + runtime HA URL reject `ws://`) |
+| Amp profiles | Global + per-connector wishes; **hard caps / per-EVSE limits win** |
 | CSMS down | `fail_safe_amps` (≤ hard cap), never full open |
-| Feature flag | Default **off** (`enabled: false` / omit block) |
-| Secrets | `ocpp_*` in `secrets.yaml` only; rotate; physical theft of ESP = credential risk |
-| v1 scope | Global max amp + Boot/Heartbeat/Status/MeterValues; **no** RemoteStart/Stop, Reset, Unlock, FW update |
+| Enable | YAML default **off**; HA `enable_switch` can stop → fail-safe + disconnect |
+| Secrets | `ocpp_*` via `!secret` and/or NVS HA overrides — **never commit**; rotate; theft of ESP = credential risk |
+| Lab remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF** (independent switches); AUDIT log |
+| Firmware | **UpdateFirmware always rejected** until signed image + rollback |
+| Cloud CSMS | Lab accept is **LAN/VPN only**. Enabling remotes (or trusting) a **public cloud CSMS** needs a **new risk accept** |
+| OCPP 2.0.1 | Not enabled |
 
 See [OCPP.md](OCPP.md) and [`components/ocpp_client/README.md`](../components/ocpp_client/README.md).
 Lab PoC only until OTA signing and cert lifecycle are proven.

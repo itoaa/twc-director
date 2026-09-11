@@ -8,6 +8,8 @@
 //   Binding: Auto-bind discovered devices to EVSE slots
 
 #include "twc_director_component.h"
+
+#include <algorithm>
 #include "esphome/core/log.h"
 #include <math.h>
 
@@ -661,6 +663,144 @@ float TWCDirectorComponent::apply_external_global_max_a(float amps) {
 
   if (this->global_max_current_control_ != nullptr) {
     this->global_max_current_control_->publish_state(value);
+  }
+  return value;
+}
+
+TWCDirectorComponent::SiteTelemetry TWCDirectorComponent::get_site_telemetry() const {
+  SiteTelemetry out{};
+  const uint32_t now = millis();
+  for (const auto &evse : this->evse_entries_) {
+    if (!evse.bound || evse.address == 0) {
+      continue;
+    }
+    out.bound_count++;
+    const twc_core_device_t *core_dev =
+        twc_core_get_device_by_address(const_cast<twc_core_t *>(&this->core_), evse.address);
+    if (core_dev == nullptr) {
+      continue;
+    }
+    const twc_device_t *dev = &core_dev->device;
+    const bool online = twc_core_device_online(&this->core_, core_dev, now);
+    if (online) {
+      out.online_count++;
+      out.any_online = true;
+    }
+    if (twc_device_get_vehicle_connected(dev)) {
+      out.any_vehicle_connected = true;
+    }
+    const float session = this->compute_session_amps_(dev);
+    if (session > 0.1f || twc_device_get_contactor_closed(dev)) {
+      out.any_charging = true;
+    }
+    const float ia = twc_device_get_phase_a_current_a(dev);
+    const float ib = twc_device_get_phase_b_current_a(dev);
+    const float ic = twc_device_get_phase_c_current_a(dev);
+    const float imax = std::max(ia, std::max(ib, ic));
+    if (imax > out.max_phase_current_a) {
+      out.max_phase_current_a = imax;
+    }
+    if (out.voltage_v <= 0.0f) {
+      const float va = twc_device_get_phase_a_voltage_v(dev);
+      const float vb = twc_device_get_phase_b_voltage_v(dev);
+      const float vc = twc_device_get_phase_c_voltage_v(dev);
+      if (va > 0.0f) {
+        out.voltage_v = va;
+      } else if (vb > 0.0f) {
+        out.voltage_v = vb;
+      } else if (vc > 0.0f) {
+        out.voltage_v = vc;
+      }
+    }
+    out.session_energy_kwh += twc_device_get_session_energy_kwh(dev);
+    out.total_energy_kwh += twc_device_get_total_energy_kwh(dev);
+  }
+  if (out.voltage_v > 0.0f && out.max_phase_current_a > 0.0f) {
+    // Best-effort single-phase-equivalent power for MeterValues.
+    out.approx_power_w = out.voltage_v * out.max_phase_current_a;
+  }
+  return out;
+}
+
+TWCDirectorComponent::SlotTelemetry TWCDirectorComponent::get_slot_telemetry(std::size_t slot_index) const {
+  SlotTelemetry out{};
+  if (slot_index >= this->evse_entries_.size()) {
+    return out;
+  }
+  const auto &evse = this->evse_entries_[slot_index];
+  if (!evse.bound || evse.address == 0) {
+    out.valid = false;
+    return out;
+  }
+  const uint32_t now = millis();
+  const twc_core_device_t *core_dev =
+      twc_core_get_device_by_address(const_cast<twc_core_t *>(&this->core_), evse.address);
+  if (core_dev == nullptr) {
+    return out;
+  }
+  const twc_device_t *dev = &core_dev->device;
+  out.valid = true;
+  out.address = evse.address;
+  out.online = twc_core_device_online(&this->core_, core_dev, now);
+  out.vehicle_connected = twc_device_get_vehicle_connected(dev);
+  out.contactor_closed = twc_device_get_contactor_closed(dev);
+  out.session_amps = this->compute_session_amps_(dev);
+  out.charging = out.session_amps > 0.1f || out.contactor_closed;
+  out.current_a[0] = twc_device_get_phase_a_current_a(dev);
+  out.current_a[1] = twc_device_get_phase_b_current_a(dev);
+  out.current_a[2] = twc_device_get_phase_c_current_a(dev);
+  out.voltage_v[0] = twc_device_get_phase_a_voltage_v(dev);
+  out.voltage_v[1] = twc_device_get_phase_b_voltage_v(dev);
+  out.voltage_v[2] = twc_device_get_phase_c_voltage_v(dev);
+  out.session_energy_kwh = twc_device_get_session_energy_kwh(dev);
+  out.total_energy_kwh = twc_device_get_total_energy_kwh(dev);
+  return out;
+}
+
+float TWCDirectorComponent::apply_external_connector_max_a(unsigned connector_id, float amps) {
+  // OCPP connectorId 1..N → slot index 0..N-1
+  if (connector_id < 1) {
+    return this->apply_external_global_max_a(amps);
+  }
+  const std::size_t slot = static_cast<std::size_t>(connector_id - 1);
+  if (slot >= this->evse_entries_.size()) {
+    ESP_LOGW(TAG, "External connector max: connectorId %u out of range (%u slots)", connector_id,
+             static_cast<unsigned>(this->evse_entries_.size()));
+    return 0.0f;
+  }
+  auto &evse = this->evse_entries_[slot];
+  if (!evse.bound || evse.address == 0) {
+    ESP_LOGW(TAG, "External connector max: slot %u not bound", static_cast<unsigned>(slot));
+    return 0.0f;
+  }
+
+  float value = amps;
+  if (value < 0.0f) {
+    value = 0.0f;
+  }
+  float max_val = this->evse_max_current_limit_a_;
+  if (max_val <= 0.0f) {
+    max_val = 32.0f;
+  }
+  if (value > max_val) {
+    value = max_val;
+  }
+  // Never exceed site hard cap either (single-connector wish still bounded).
+  if (this->global_max_current_a_ > 0.0f && value > this->global_max_current_a_) {
+    value = this->global_max_current_a_;
+  }
+
+  ESP_LOGI(TAG, "External connector %u (TWC 0x%04X) max request: %.1fA -> applied %.1fA", connector_id,
+           evse.address, amps, value);
+
+  twc_core_set_max_current(&this->core_, evse.address, value);
+  twc_core_set_desired_session_current(&this->core_, evse.address, value);
+  evse.last_max_current_setpoint_a = value;
+  if (evse.session_current) {
+    evse.session_current->publish_state(value);
+  }
+  if (evse.max_current) {
+    evse.max_current->publish_state(value);
   }
   return value;
 }

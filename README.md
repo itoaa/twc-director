@@ -239,13 +239,22 @@ Egna ändringar i denna fork: se git-historik.
 ## OCPP 1.6J experiment
 
 On branch `feature/ocpp-1.6` we explore **native** OCPP 1.6J (MicroOCPP) so the
-director can speak to a CSMS over **wss** and steer **global max amp only**.
+director can speak to a CSMS over **wss**, report MeterValues/Status from TWC
+telemetry, and steer **global + per-connector** amp wishes (hard caps win).
+Runtime HA entities can set CSMS URL/id/key and enable/disable without reflash.
+Lab RemoteStart/Stop/Reset/Unlock are **DEFAULT OFF**; UpdateFirmware always rejected.
 
-- Design + constraints: [`docs/OCPP.md`](docs/OCPP.md)
+### Out of scope (enforced)
+
+- OCPP 2.0.1 (not enabled)
+- Remote firmware path
+- Cleartext `ws://` / raising amps above hard caps / committing secrets
+
+- Design + CISO: [`docs/OCPP.md`](docs/OCPP.md), [`docs/SECURITY.md`](docs/SECURITY.md)
 - Component: [`components/ocpp_client/`](components/ocpp_client/) (default `enabled: false`)
 - Example fragment: [`examples/ocpp-fragment.yaml`](examples/ocpp-fragment.yaml)
 - Optional OCPP YAML (CI-verified `enabled: true`): [`tesla-director-ocpp.yaml`](tesla-director-ocpp.yaml)
 
 `main` / default [`tesla-director.yaml`](tesla-director.yaml) stays without OCPP.
-Live CSMS needs `./components/ocpp_client/scripts/fetch_deps.sh` and `ocpp_*` secrets.
+First time / after pin change: `./components/ocpp_client/scripts/fetch_deps.sh` + `ocpp_*` secrets.
 
