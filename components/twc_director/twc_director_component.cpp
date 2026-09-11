@@ -642,6 +642,30 @@ float TWCDirectorComponent::compute_session_amps_(const twc_device_t *dev) const
 }
 
 // =============================================================================
+// EXTERNAL GLOBAL MAX (OCPP / other external controllers)
+// =============================================================================
+
+float TWCDirectorComponent::apply_external_global_max_a(float amps) {
+  float value = amps;
+  if (value < 1.0f) {
+    value = 1.0f;
+  }
+  if (this->global_max_current_a_ > 0.0f && value > this->global_max_current_a_) {
+    value = this->global_max_current_a_;
+  }
+
+  ESP_LOGI(TAG, "External global max request: %.1fA -> applied %.1fA (hard cap %.1fA)",
+           amps, value, this->global_max_current_a_);
+
+  twc_core_set_global_max_current(&this->core_, value);
+
+  if (this->global_max_current_control_ != nullptr) {
+    this->global_max_current_control_->publish_state(value);
+  }
+  return value;
+}
+
+// =============================================================================
 // CURRENT CONTROL (ESPHome Number → Core)
 // =============================================================================
 

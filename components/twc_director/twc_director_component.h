@@ -219,6 +219,15 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   void handle_current_number_control(uint16_t address, float value,
                                       TWCDirectorCurrentNumber::CurrentType type);
 
+  // ---- External amp budget API (used by ocpp_client) ----
+  // Compile-time / YAML hard safety cap — CSMS must never raise above this.
+  float hard_cap_global_max_a() const { return this->global_max_current_a_; }
+
+  // Apply an external wish (OCPP profile / ChangeConfiguration). Clamps to
+  // [1 A, hard_cap] and updates the C core + optional global_max_current_control.
+  // Returns the clamped value actually applied.
+  float apply_external_global_max_a(float amps);
+
   // =========================================================================
   // Timing Constants
   // =========================================================================
