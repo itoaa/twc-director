@@ -46,6 +46,8 @@ Default `tesla-director.yaml` does **not** include this block (CI stays green).
 ```
 
 Places `vendor/MicroOcpp` + `vendor/ArduinoJson` as ESP-IDF sibling components.
+Runtime uses committed `vendor/ocpp_mocpp_bridge` (C API) so ArduinoJson does not
+collide with ESPHome’s JSON stack.
 Also pulls managed component `espressif/esp_websocket_client` at compile time for
 the WSS adapter. Details: [`vendor/README.md`](vendor/README.md).
 

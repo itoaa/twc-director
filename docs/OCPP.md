@@ -49,7 +49,7 @@ Client: [MicroOCPP](https://github.com/matth-x/MicroOcpp) (OCPP 1.6J) + [Arduino
 ./components/ocpp_client/scripts/fetch_deps.sh
 ```
 
-Registered as local ESP-IDF components under `components/ocpp_client/vendor/{MicroOcpp,ArduinoJson}`
+MicroOCPP + ArduinoJson live under `components/ocpp_client/vendor/` (fetch_deps.sh); runtime glue is the committed `ocpp_mocpp_bridge` C API (keeps ArduinoJson off ESPHome’s include path)
 (sibling layout required by MicroOCPP’s CMake). WSS uses managed component
 `espressif/esp_websocket_client`.
 
