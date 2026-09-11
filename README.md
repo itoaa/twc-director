@@ -235,3 +235,14 @@ Egna ändringar i denna fork: se git-historik.
 - [Wired-Square/esphome-twc-director](https://github.com/Wired-Square/esphome-twc-director)
 - Tesla Motors Club / protokoll-reverse-engineering-communityn
 - ESPHome-teamet
+
+## OCPP 1.6J experiment
+
+On branch `feature/ocpp-1.6` we are exploring **native** OCPP so the director
+node looks like **one Charge Point** and CSMS only sets **global max amp**.
+
+- Design + constraints: [`docs/OCPP.md`](docs/OCPP.md)
+- Component stub: [`components/ocpp_client/`](components/ocpp_client/)
+- Example YAML shape: [`examples/ocpp-fragment.yaml`](examples/ocpp-fragment.yaml)
+
+`main` remains the stable ESPHome 2026.7 TWC director without OCPP.
