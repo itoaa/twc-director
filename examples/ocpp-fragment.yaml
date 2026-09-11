@@ -1,0 +1,11 @@
+# Example only — do not enable until ocpp_client is implemented.
+# Intended shape for tesla-director-safe + OCPP (default off).
+
+# ocpp_client:
+#   id: twc_ocpp
+#   enabled: false
+#   csms_url: !secret ocpp_csms_url   # must be wss://
+#   charge_point_id: !secret ocpp_charge_point_id
+#   authorization_key: !secret ocpp_authorization_key
+#   # Maps SetChargingProfile / max amp into director global_max_current
+#   # with hard-cap clamp (never above compile-time / breaker limits).
