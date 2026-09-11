@@ -133,13 +133,14 @@ async def to_code(config):
         vendor = Path(__file__).parent / "vendor"
         # Sibling layout required by MicroOCPP's ESP-IDF CMakeLists
         # (INCLUDE_DIRS "../ArduinoJson/src").
+        # Sibling MicroOcpp + ArduinoJson (AJ is PRIV include only — see fetch_deps.sh).
         add_idf_component(name="MicroOcpp", path=str(vendor / "MicroOcpp"))
-        add_idf_component(name="ArduinoJson", path=str(vendor / "ArduinoJson"))
-        # ESP-IDF 5.x WebSocket client (managed component) for wss:// CSMS link.
+        # C bridge isolates MicroOcpp/ArduinoJson from ESPHome's JSON stack.
+        add_idf_component(name="ocpp_mocpp_bridge", path=str(vendor / "ocpp_mocpp_bridge"))
+        # ESP-IDF 5.x WebSocket client (managed) for wss:// CSMS link.
         add_idf_component(name="espressif/esp_websocket_client", ref="1.4.0")
-        # MicroOCPP PRIV_REQUIRES spiffs even if we use FilesystemOpt::Deactivate.
+        # MicroOCPP PRIV_REQUIRES spiffs even with FilesystemOpt::Deactivate.
         include_builtin_idf_component("spiffs")
         cg.add_define("USE_MICROOCPP")
         cg.add_build_flag("-DMO_PLATFORM=MO_PLATFORM_ESPIDF")
-        # Disable built-in connector lock path (UnlockConnector out of v1 scope).
         cg.add_build_flag("-DMO_ENABLE_CONNECTOR_LOCK=0")

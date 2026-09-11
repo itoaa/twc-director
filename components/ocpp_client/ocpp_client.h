@@ -8,41 +8,8 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/twc_director/twc_director_component.h"
 
-#ifdef USE_MICROOCPP
-#include <MicroOcpp/Core/Connection.h>
-#endif
-
 namespace esphome {
 namespace ocpp_client {
-
-#ifdef USE_MICROOCPP
-// Thin WebSocket adapter for MicroOCPP on ESP-IDF (esp_websocket_client + wss).
-class EspIdfWsConnection : public MicroOcpp::Connection {
- public:
-  EspIdfWsConnection() = default;
-  ~EspIdfWsConnection() override;
-
-  bool begin(const std::string &wss_url, const std::string &username, const std::string &auth_key);
-  void end();
-
-  void loop() override;
-  bool sendTXT(const char *msg, size_t length) override;
-  void setReceiveTXTcallback(MicroOcpp::ReceiveTXTcallback &receiveTXT) override;
-  unsigned long getLastRecv() override { return this->last_recv_ms_; }
-  unsigned long getLastConnected() override { return this->last_connected_ms_; }
-  bool isConnected() override { return this->connected_; }
-
-  // Called from the C event handler.
-  void on_event_(int32_t event_id, void *event_data);
-
- private:
-  void *client_{nullptr};  // esp_websocket_client_handle_t
-  MicroOcpp::ReceiveTXTcallback receive_txt_;
-  bool connected_{false};
-  unsigned long last_recv_ms_{0};
-  unsigned long last_connected_ms_{0};
-};
-#endif
 
 class OcppClientComponent : public Component {
  public:
@@ -63,6 +30,10 @@ class OcppClientComponent : public Component {
   void loop() override;
   float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION; }
 
+  // Callbacks from MicroOCPP C bridge (static thunks).
+  void on_smart_current_(float amps);
+  void on_change_config_(const char *key, const char *value);
+
  protected:
   float apply_csms_global_max_(float amps);
   void publish_state_(bool connected, const char *state);
@@ -82,14 +53,11 @@ class OcppClientComponent : public Component {
   std::string authorization_key_;
   std::string vendor_{"itoaa"};
   std::string model_{"TWC-Director"};
+  std::string resolved_url_;
 
   binary_sensor::BinarySensor *connected_sensor_{nullptr};
   text_sensor::TextSensor *connection_state_sensor_{nullptr};
   sensor::Sensor *last_applied_amps_sensor_{nullptr};
-
-#ifdef USE_MICROOCPP
-  EspIdfWsConnection ws_;
-#endif
 };
 
 }  // namespace ocpp_client

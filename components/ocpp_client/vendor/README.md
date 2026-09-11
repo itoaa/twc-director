@@ -1,24 +1,23 @@
 # Vendor libraries (MicroOCPP + ArduinoJson)
 
-These directories are **not** committed as full source trees by default.
+| Path | Tracked in git? | Role |
+|------|-----------------|------|
+| `ocpp_mocpp_bridge/` | **yes** | C bridge + WSS adapter (isolates ArduinoJson from ESPHome) |
+| `MicroOcpp/` | no (fetch) | [MicroOCPP](https://github.com/matth-x/MicroOcpp) ESP-IDF component |
+| `ArduinoJson/` | no (fetch) | ArduinoJson v6 — **private** include for MicroOCPP only |
 
-When `ocpp_client.enabled: true`, ESPHome registers them as local ESP-IDF
-components (sibling paths required by MicroOCPP’s `CMakeLists.txt`).
+When `ocpp_client.enabled: true`, ESPHome registers `MicroOcpp` + `ocpp_mocpp_bridge`
+as local ESP-IDF components (sibling layout required by MicroOCPP’s CMake).
 
-## Fetch
+## Fetch (lab / enabled:true)
 
 ```bash
 ./components/ocpp_client/scripts/fetch_deps.sh
 ```
 
-Pins (override with env):
+Pins (override with env): `MICROOCPP_REF` (default `1.2.0`), `ARDUINOJSON_REF` (default `6.21.5`).
 
-| Dir | Upstream | Default ref |
-|-----|----------|-------------|
-| `MicroOcpp/` | https://github.com/matth-x/MicroOcpp | `1.2.0` |
-| `ArduinoJson/` | https://github.com/bblanchon/ArduinoJson | `6.21.5` |
+The fetch script patches MicroOCPP’s `CMakeLists.txt` so ArduinoJson is
+`PRIV_INCLUDE_DIRS` (avoids breaking ESPHome’s JSON component).
 
-Optional: convert to git submodules after first fetch if you prefer submodule
-workflow (`git submodule add … vendor/MicroOcpp`).
-
-`enabled: false` builds do **not** need this folder populated.
+`enabled: false` builds do **not** need MicroOcpp/ArduinoJson populated.
