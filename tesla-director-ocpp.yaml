@@ -174,7 +174,7 @@ twc_director:
 
 # OCPP PoC — enabled:true links MicroOCPP (CI: fetch_deps + compile).
 # Default tesla-director.yaml stays OCPP-free. Secrets via !secret only.
-# HA entities override URL/id/key and can disable without rebuild.
+# HA entities override URL/id/key/ca_cert and can disable without rebuild.
 ocpp_client:
   id: twc_ocpp
   enabled: true
@@ -202,6 +202,8 @@ ocpp_client:
     name: OCPP Charge Point ID
   authorization_key_text:
     name: OCPP Authorization Key
+  ca_cert_text:
+    name: OCPP CA Cert
   fail_safe_button:
     name: "OCPP återställ till fail-safe"
   allow_remote_start:

@@ -43,7 +43,7 @@ class OcppFeatureSwitch : public switch_::Switch {
 
 class OcppParamText : public text::Text {
  public:
-  enum Kind { CSMS_URL, CHARGE_POINT_ID, AUTH_KEY };
+  enum Kind { CSMS_URL, CHARGE_POINT_ID, AUTH_KEY, CA_CERT };
   void set_parent(OcppClientComponent *parent, Kind kind) {
     this->parent_ = parent;
     this->kind_ = kind;
@@ -77,7 +77,12 @@ class OcppClientComponent : public Component {
   void set_allow_insecure_tls(bool v) { this->allow_insecure_tls_ = v; }
   void set_allow_cleartext_ws(bool v) { this->allow_cleartext_ws_ = v; }
   void set_crt_bundle_attach(bool v) { this->crt_bundle_attach_ = v; }
-  void set_ca_cert(const std::string &pem) { this->ca_cert_ = pem; }
+  void set_ca_cert(const std::string &pem) {
+    this->ca_cert_yaml_ = pem;
+    if (!this->has_ca_override_) {
+      this->ca_cert_ = pem;
+    }
+  }
 
   void set_connected_sensor(binary_sensor::BinarySensor *s) { this->connected_sensor_ = s; }
   void set_connection_state_sensor(text_sensor::TextSensor *s) { this->connection_state_sensor_ = s; }
@@ -105,6 +110,12 @@ class OcppClientComponent : public Component {
     this->authorization_key_text_ = t;
     if (t != nullptr) {
       t->set_parent(this, OcppParamText::AUTH_KEY);
+    }
+  }
+  void set_ca_cert_text(OcppParamText *t) {
+    this->ca_cert_text_ = t;
+    if (t != nullptr) {
+      t->set_parent(this, OcppParamText::CA_CERT);
     }
   }
   void set_fail_safe_button(OcppFailSafeButton *b) {
@@ -166,6 +177,11 @@ class OcppClientComponent : public Component {
   void push_feature_flags_();
   void load_runtime_prefs_();
   void save_runtime_prefs_();
+  void persist_ca_pref_();
+  void publish_ca_cert_text_();
+  static std::string redact_ca_cert_(const std::string &pem);
+  static bool is_redacted_ca_placeholder_(const std::string &value);
+  bool looks_like_pem_(const std::string &value) const;
   bool runtime_enabled_() const;
   std::string effective_url_() const;
   static std::string redact_wss_url_(const std::string &url);
@@ -199,7 +215,8 @@ class OcppClientComponent : public Component {
   bool allow_insecure_tls_{false};
   bool allow_cleartext_ws_{false};
   bool crt_bundle_attach_{true};
-  std::string ca_cert_;
+  std::string ca_cert_;       /* effective: NVS override if set, else YAML */
+  std::string ca_cert_yaml_;  /* YAML seed; fallback when HA clears override */
 
   binary_sensor::BinarySensor *connected_sensor_{nullptr};
   text_sensor::TextSensor *connection_state_sensor_{nullptr};
@@ -209,6 +226,7 @@ class OcppClientComponent : public Component {
   OcppParamText *csms_url_text_{nullptr};
   OcppParamText *charge_point_id_text_{nullptr};
   OcppParamText *authorization_key_text_{nullptr};
+  OcppParamText *ca_cert_text_{nullptr};
   OcppFailSafeButton *fail_safe_button_{nullptr};
   OcppFeatureSwitch *remote_start_switch_{nullptr};
   OcppFeatureSwitch *remote_stop_switch_{nullptr};
@@ -221,12 +239,16 @@ class OcppClientComponent : public Component {
   static constexpr size_t PREF_URL_LEN = 191;
   static constexpr size_t PREF_ID_LEN = 48;
   static constexpr size_t PREF_KEY_LEN = 64;
+  static constexpr size_t PREF_CA_LEN = 4094; /* one CA PEM; heap-copied on save/load */
   ESPPreferenceObject pref_url_{};
   ESPPreferenceObject pref_id_{};
   ESPPreferenceObject pref_key_{};
+  ESPPreferenceObject pref_ca_{};
   bool has_url_override_{false};
   bool has_id_override_{false};
   bool has_key_override_{false};
+  bool has_ca_override_{false};
+  std::string last_ws_error_;
 };
 
 }  // namespace ocpp_client

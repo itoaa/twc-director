@@ -15,6 +15,15 @@ const char *TAG = "ocpp_bridge";
 twc_ocpp::EspIdfWsConnection *g_ws = nullptr;
 bool g_started = false;
 bool g_cleartext_ws = false; /* set when active transport is ws:// */
+char g_last_error[48] = {};
+
+void remember_error_(const char *code) {
+  if (code == nullptr || code[0] == '\0') {
+    g_last_error[0] = '\0';
+    return;
+  }
+  std::snprintf(g_last_error, sizeof(g_last_error), "%s", code);
+}
 twc_ocpp_mocpp_config_t g_cfg{};
 twc_ocpp_feature_flags_t g_flags{};
 twc_ocpp_telemetry_t g_telem{};
@@ -200,19 +209,26 @@ extern "C" bool twc_ocpp_mocpp_start(const twc_ocpp_mocpp_config_t *cfg) {
   tls.ca_cert_pem = cfg->ca_cert_pem;
   if (tls.allow_cleartext_ws && g_cleartext_ws) {
     ESP_LOGW(TAG, "WS: allow_cleartext_ws requested (will apply only if host is RFC1918/.local lab)");
+  } else if (tls.ca_cert_pem && tls.ca_cert_pem[0]) {
+    ESP_LOGI(TAG, "TLS: custom ca_cert PEM (%u bytes, not logged)",
+             (unsigned) strlen(tls.ca_cert_pem));
+    if (tls.allow_insecure_tls) {
+      ESP_LOGI(TAG, "TLS: allow_insecure_tls ignored because ca_cert is set (verify wins)");
+    }
   } else if (tls.allow_insecure_tls) {
     ESP_LOGW(TAG, "TLS: allow_insecure_tls requested (will apply only if host is RFC1918/.local lab)");
-  } else if (tls.ca_cert_pem && tls.ca_cert_pem[0]) {
-    ESP_LOGI(TAG, "TLS: custom ca_cert PEM (%u bytes)", (unsigned) strlen(tls.ca_cert_pem));
   } else if (tls.crt_bundle_attach) {
     ESP_LOGI(TAG, "TLS: crt_bundle_attach (default verify)");
   }
   if (!g_ws->begin(cfg->wss_url, user, pass, tls)) {
-    ESP_LOGE(TAG, "after g_ws->begin: FAILED");
+    const char *err = g_ws->last_error();
+    remember_error_(err);
+    ESP_LOGE(TAG, "after g_ws->begin: FAILED category=%s", err ? err : "error:ws-init");
     delete g_ws;
     g_ws = nullptr;
     return false;
   }
+  remember_error_(nullptr);
   ESP_LOGI(TAG, "after g_ws->begin: OK");
 
   const char *model = cfg->model ? cfg->model : "TWC-Director";
@@ -302,6 +318,16 @@ extern "C" bool twc_ocpp_mocpp_is_connected(void) {
   return g_ws != nullptr && g_ws->isConnected();
 }
 
+extern "C" const char *twc_ocpp_mocpp_last_error(void) {
+  if (g_ws != nullptr) {
+    const char *err = g_ws->last_error();
+    if (err != nullptr && err[0] != '\0') {
+      return err;
+    }
+  }
+  return g_last_error[0] ? g_last_error : nullptr;
+}
+
 extern "C" void twc_ocpp_mocpp_stop(void) {
   if (!g_started) {
     return;
@@ -313,6 +339,8 @@ extern "C" void twc_ocpp_mocpp_stop(void) {
     g_ws = nullptr;
   }
   g_started = false;
+  g_cleartext_ws = false;
+  remember_error_(nullptr);
   std::memset(&g_telem, 0, sizeof(g_telem));
 }
 

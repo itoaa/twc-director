@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <algorithm>
 
 #ifdef USE_MICROOCPP
@@ -27,6 +28,10 @@ struct FlagBlob {
 struct PrefString {
   uint8_t len;
   char data[192];  // URL can exceed 160 (Ola live ~161); id/key use same blob
+};
+struct PrefCaCert {
+  uint16_t len;
+  char data[4094];  // one CA PEM (CISO: overwrite/zero on update; never log)
 };
 }  // namespace
 
@@ -103,6 +108,28 @@ void OcppClientComponent::log_wss_target_(const char *phase, const std::string &
            cleartext ? 1 : 0);
 }
 
+std::string OcppClientComponent::redact_ca_cert_(const std::string &pem) {
+  if (pem.empty()) {
+    return "";
+  }
+  char buf[40];
+  snprintf(buf, sizeof(buf), "set (%u bytes)", static_cast<unsigned>(pem.size()));
+  return buf;
+}
+
+bool OcppClientComponent::is_redacted_ca_placeholder_(const std::string &value) {
+  return value == "********" || value.rfind("set (", 0) == 0;
+}
+
+bool OcppClientComponent::looks_like_pem_(const std::string &value) const {
+  return value.find("-----BEGIN") != std::string::npos;
+}
+
+void OcppClientComponent::publish_ca_cert_text_() {
+  if (this->ca_cert_text_ != nullptr) {
+    this->ca_cert_text_->publish_state(redact_ca_cert_(this->ca_cert_));
+  }
+}
 
 #ifdef USE_MICROOCPP
 static void smart_current_thunk(float amps, void *user) {
@@ -151,9 +178,11 @@ void OcppParamText::control(const std::string &value) {
   if (this->parent_ != nullptr) {
     this->parent_->handle_param_write_(this->kind_, value);
   }
-  // Never publish the raw authorization key into HA state.
+  // Never publish raw authorization key or PEM into HA state.
   if (this->kind_ == AUTH_KEY) {
     this->publish_state(value.empty() ? "" : "********");
+  } else if (this->kind_ == CA_CERT) {
+    // parent publishes redacted effective state (empty / set (N bytes))
   } else {
     this->publish_state(value);
   }
@@ -268,6 +297,7 @@ void OcppClientComponent::load_runtime_prefs_() {
   this->pref_url_ = global_preferences->make_preference<PrefString>(fnv1_hash("ocpp_url"));
   this->pref_id_ = global_preferences->make_preference<PrefString>(fnv1_hash("ocpp_id"));
   this->pref_key_ = global_preferences->make_preference<PrefString>(fnv1_hash("ocpp_key"));
+  this->pref_ca_ = global_preferences->make_preference<PrefCaCert>(fnv1_hash("ocpp_ca"));
 
   bool en = this->enabled_default_;
   if (this->pref_enabled_.load(&en)) {
@@ -297,6 +327,31 @@ void OcppClientComponent::load_runtime_prefs_() {
     this->authorization_key_.assign(ps.data, ps.len);
     this->has_key_override_ = true;
   }
+  auto *pc = new PrefCaCert();
+  std::memset(pc, 0, sizeof(*pc));
+  if (this->pref_ca_.load(pc) && pc->len > 0 && pc->len < sizeof(pc->data)) {
+    this->ca_cert_.assign(pc->data, pc->len);
+    this->has_ca_override_ = true;
+    ESP_LOGI(TAG, "CA cert override loaded from NVS (len=%u, PEM not logged)",
+             static_cast<unsigned>(pc->len));
+  } else {
+    this->ca_cert_ = this->ca_cert_yaml_;
+    this->has_ca_override_ = false;
+  }
+  delete pc;
+}
+
+void OcppClientComponent::persist_ca_pref_() {
+  auto *pc = new PrefCaCert();
+  std::memset(pc, 0, sizeof(*pc));  // overwrite/delete previous PEM in NVS
+  if (this->has_ca_override_ && !this->ca_cert_.empty()) {
+    size_t n = std::min(this->ca_cert_.size(), sizeof(pc->data) - 1);
+    pc->len = static_cast<uint16_t>(n);
+    memcpy(pc->data, this->ca_cert_.c_str(), n);
+  }
+  this->pref_ca_.save(pc);
+  delete pc;
+  global_preferences->sync();
 }
 
 void OcppClientComponent::save_runtime_prefs_() {
@@ -499,6 +554,11 @@ void OcppClientComponent::maybe_init_microocpp_() {
   cfg.allow_cleartext_ws = this->allow_cleartext_ws_;
   cfg.crt_bundle_attach = this->crt_bundle_attach_;
   cfg.ca_cert_pem = this->ca_cert_.empty() ? nullptr : this->ca_cert_.c_str();
+  if (!this->ca_cert_.empty()) {
+    ESP_LOGI(TAG, "TLS: effective ca_cert len=%u source=%s (PEM not logged)",
+             static_cast<unsigned>(this->ca_cert_.size()),
+             this->has_ca_override_ ? "NVS" : "YAML");
+  }
   if (this->allow_insecure_tls_) {
     ESP_LOGW(TAG, "allow_insecure_tls enabled in config (CISO: only RFC1918/.local lab hosts)");
   }
@@ -522,7 +582,14 @@ void OcppClientComponent::maybe_init_microocpp_() {
   if (!twc_ocpp_mocpp_start(&cfg)) {
     ESP_LOGE(TAG, "twc_ocpp_mocpp_start failed after %ums", static_cast<unsigned>(millis() - t0));
     this->init_pending_ = false;
-    if (this->is_cleartext_ws_url_()) {
+#ifdef USE_MICROOCPP
+    const char *err = twc_ocpp_mocpp_last_error();
+    if (err != nullptr && err[0] != '\0') {
+      this->last_ws_error_ = err;
+      this->publish_state_(false, err);
+    } else
+#endif
+        if (this->is_cleartext_ws_url_()) {
       this->publish_state_(false, "error:cleartext-rejected-or-ws");
     } else if (this->allow_insecure_tls_) {
       this->publish_state_(false, "error:tls-insecure-rejected-or-ws");
@@ -553,17 +620,29 @@ void OcppClientComponent::maybe_init_microocpp_() {
 void OcppClientComponent::poll_connection_() {
 #ifdef USE_MICROOCPP
   bool connected = twc_ocpp_mocpp_is_connected();
-  if (connected != this->was_connected_) {
-    if (connected) {
+  const char *err = twc_ocpp_mocpp_last_error();
+  if (connected) {
+    if (!this->was_connected_) {
       this->connect_started_ms_ = 0;
+      this->last_ws_error_.clear();
       this->publish_state_(true, "connected");
       ESP_LOGI(TAG, "CSMS WebSocket connected");
-    } else {
-      this->publish_state_(false, "disconnected");
-      this->apply_fail_safe_("CSMS disconnected");
     }
-    this->was_connected_ = connected;
+    this->was_connected_ = true;
+    return;
   }
+  if (err != nullptr && err[0] != '\0' && this->last_ws_error_ != err) {
+    this->last_ws_error_ = err;
+    this->publish_state_(false, err);
+    ESP_LOGE(TAG, "CSMS WS/TLS error category=%s", err);
+    if (this->was_connected_) {
+      this->apply_fail_safe_("CSMS TLS/WS error");
+    }
+  } else if (this->was_connected_) {
+    this->publish_state_(false, "disconnected");
+    this->apply_fail_safe_("CSMS disconnected");
+  }
+  this->was_connected_ = false;
 #endif
 }
 
@@ -680,6 +759,39 @@ void OcppClientComponent::handle_param_write_(OcppParamText::Kind kind, const st
       this->has_key_override_ = true;
       ESP_LOGI(TAG, "Authorization key updated via HA (value not logged)");
       break;
+    case OcppParamText::CA_CERT:
+      if (is_redacted_ca_placeholder_(value)) {
+        ESP_LOGW(TAG, "Ignoring placeholder ca_cert write");
+        this->publish_ca_cert_text_();
+        return;
+      }
+      if (value.empty()) {
+        this->has_ca_override_ = false;
+        this->ca_cert_ = this->ca_cert_yaml_;
+        this->persist_ca_pref_();  // zero NVS blob — old PEM overwritten
+        ESP_LOGI(TAG, "CA cert override cleared — fallback to %s (PEM not logged)",
+                 this->ca_cert_.empty() ? "YAML empty / crt_bundle" : "YAML ca_cert");
+        this->publish_ca_cert_text_();
+        break;
+      }
+      if (value.size() >= PREF_CA_LEN) {
+        ESP_LOGE(TAG, "Rejecting ca_cert write — too long (%u, max %u)",
+                 static_cast<unsigned>(value.size()), static_cast<unsigned>(PREF_CA_LEN - 1));
+        this->publish_ca_cert_text_();
+        return;
+      }
+      if (!this->looks_like_pem_(value)) {
+        ESP_LOGE(TAG, "Rejecting ca_cert write — missing PEM BEGIN marker (value not logged)");
+        this->publish_ca_cert_text_();
+        return;
+      }
+      this->ca_cert_ = value;
+      this->has_ca_override_ = true;
+      this->persist_ca_pref_();  // overwrite previous NVS PEM
+      ESP_LOGI(TAG, "CA cert updated via HA (len=%u, PEM not logged)",
+               static_cast<unsigned>(this->ca_cert_.size()));
+      this->publish_ca_cert_text_();
+      break;
   }
   this->save_runtime_prefs_();
   if (this->runtime_enabled_()) {
@@ -721,6 +833,7 @@ void OcppClientComponent::setup() {
     // Do not publish real secret into HA state if empty; show placeholder when set.
     this->authorization_key_text_->publish_state(this->authorization_key_.empty() ? "" : "********");
   }
+  this->publish_ca_cert_text_();
   if (this->remote_start_switch_ != nullptr) {
     this->remote_start_switch_->publish_state(this->allow_remote_start_);
   }

@@ -29,15 +29,20 @@ class EspIdfWsConnection : public MicroOcpp::Connection {
   unsigned long getLastConnected() override { return last_connected_ms_; }
   bool isConnected() override { return connected_; }
 
+  /* Stable literal, e.g. error:tls-verify — never a secret / PEM. nullptr if none. */
+  const char *last_error() const { return last_error_; }
+
   void on_event_(int32_t event_id, void *event_data);
 
  private:
+  void set_error_(const char *code);
   void *client_{nullptr};
   MicroOcpp::ReceiveTXTcallback receive_txt_;
   bool connected_{false};
   unsigned long last_recv_ms_{0};
   unsigned long last_connected_ms_{0};
   std::string ca_cert_owned_; /* keeps cert_pem alive for websocket client lifetime */
+  const char *last_error_{nullptr};
 };
 
 }  // namespace twc_ocpp

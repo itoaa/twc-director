@@ -36,6 +36,7 @@ CONF_ENABLE_SWITCH = "enable_switch"
 CONF_CSMS_URL_TEXT = "csms_url_text"
 CONF_CHARGE_POINT_ID_TEXT = "charge_point_id_text"
 CONF_AUTHORIZATION_KEY_TEXT = "authorization_key_text"
+CONF_CA_CERT_TEXT = "ca_cert_text"
 CONF_FAIL_SAFE_BUTTON = "fail_safe_button"
 CONF_ALLOW_REMOTE_START = "allow_remote_start"
 CONF_ALLOW_REMOTE_STOP = "allow_remote_stop"
@@ -233,6 +234,11 @@ CONFIG_SCHEMA = cv.All(
                 mode="PASSWORD",
                 entity_category=ENTITY_CATEGORY_CONFIG,
             ),
+            cv.Optional(CONF_CA_CERT_TEXT): text.text_schema(
+                OcppParamText,
+                mode="PASSWORD",
+                entity_category=ENTITY_CATEGORY_CONFIG,
+            ),
             cv.Optional(CONF_FAIL_SAFE_BUTTON): button.button_schema(
                 OcppFailSafeButton,
                 entity_category=ENTITY_CATEGORY_CONFIG,
@@ -315,6 +321,10 @@ async def to_code(config):
     if CONF_AUTHORIZATION_KEY_TEXT in config:
         t = await text.new_text(config[CONF_AUTHORIZATION_KEY_TEXT])
         cg.add(var.set_authorization_key_text(t))
+    if CONF_CA_CERT_TEXT in config:
+        # PEM can exceed the default 255; HA state is redacted (never raw PEM).
+        t = await text.new_text(config[CONF_CA_CERT_TEXT], max_length=4094)
+        cg.add(var.set_ca_cert_text(t))
     if CONF_FAIL_SAFE_BUTTON in config:
         btn = await button.new_button(config[CONF_FAIL_SAFE_BUTTON])
         cg.add(var.set_fail_safe_button(btn))

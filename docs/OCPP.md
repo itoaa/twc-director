@@ -31,8 +31,9 @@
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `crt_bundle_attach` | `true` | Verify CSMS with ESP-IDF Mozilla CA bundle (cloud / public CA) |
-| `ca_cert` | unset | PEM string of lab/private CA (preferred for self-signed) |
-| `allow_insecure_tls` | `false` | Skip server cert verify — **lab only**, RFC1918/`.local` gated |
+| `ca_cert` | unset | YAML seed: PEM of lab/private CA (preferred for self-signed) |
+| `ca_cert_text` (HA) | — | Runtime NVS override of `ca_cert`. State is `set (N bytes)` / empty — **never raw PEM**. Empty write deletes NVS and falls back to YAML / bundle. |
+| `allow_insecure_tls` | `false` | Skip server cert verify — **lab only**, RFC1918/`.local` gated. **Ignored if an effective CA is set** (runtime or YAML). |
 | `allow_cleartext_ws` | `false` | Allow `ws://` — **lab LAN only**, same RFC1918/`.local` gate; WARN every accept |
 
 **CitrineOS:** identification / early lab often uses cleartext **`ws://…:8081/<stationId>`**. Stock OCPP 1.6 WSS is often **`wss://…:8092`** (custom compose may use **8090**). Self-signed WSS needs `ca_cert` **or** (lab) `allow_insecure_tls: true`. After WSS handoff, **remove** `allow_cleartext_ws` from prod-config (lab-only; never leave on).
@@ -70,11 +71,18 @@ Production / cloud: leave `allow_insecure_tls` and `allow_cleartext_ws` false; u
 |--------|---------|
 | `enable_switch` | Start/stop CSMS client without reflash; OFF → fail-safe + clean mocpp stop |
 | `csms_url_text` / `charge_point_id_text` / `authorization_key_text` | Runtime overrides (`wss://`, or lab `ws://` if flag on; key shown as `********`) |
+| `ca_cert_text` | Runtime CA PEM → NVS (max ~4094 bytes). HA state: empty / `set (N bytes)`. Clear = fall back to YAML `ca_cert` or crt_bundle. |
 | `connected` / `connection_state` / `last_applied_amps` | CSMS observability |
 | `fail_safe_button` («återställ till fail-safe») | Calls `apply_fail_safe_` |
 | `allow_remote_*` switches | Lab gates for RemoteStart/Stop/Reset/Unlock (DEFAULT OFF; **forced OFF while `ws://`**) |
 
 YAML `!secret` values seed the device; HA edits persist in NVS (not git).
+
+**Set a lab CA in HA:** Developer Tools → Services / entity `text.ocpp_ca_cert` (name **OCPP CA Cert**) → paste the PEM (`-----BEGIN CERTIFICATE-----` …). The entity is a password field; published state is `set (N bytes)` only. Toggle **OCPP Enable** OFF/ON (or it restarts itself on write) so the bridge picks up the cert.
+
+**Clear the runtime CA:** write empty to `ca_cert_text`. NVS PEM is zeroed; effective CA becomes YAML `ca_cert` if present, otherwise the Mozilla bundle (`crt_bundle_attach`).
+
+`connection_state` examples: `connecting`, `connected`, `disconnected`, `disabled`, `error:connect-timeout`, `error:tls-verify`, `error:tls-cn`, `error:tls-alert`, `error:tls-timeout`, `error:tls-no-verify-option`, `error:tls-insecure-needs-rebuild`, `error:tls-host-rejected`.
 
 ## MeterValues + StatusNotification (Max #6)
 
@@ -221,7 +229,10 @@ device log (`ocpp_client` / `ocpp_bridge` / `ocpp_ws`). Auth key and URL userinf
 5. `after g_ws->begin: OK` → `before mocpp_initialize` → `after mocpp_initialize`
 6. `MicroOCPP bridge initialized` / `MicroOCPP started`
 7. Either `WEBSOCKET_EVENT_CONNECTED` + `CSMS WebSocket connected` (`connection_state=connected`),
-   or after **45s** `error:connect-timeout` + fail-safe + stop (toggle Enable OFF/ON to retry)
+   or a specific TLS/WS category (`error:tls-verify` / `error:tls-cn` / `error:tls-alert` / …)
+   as soon as `WEBSOCKET_EVENT_ERROR` fires, or after **45s** `error:connect-timeout` + fail-safe
+   + stop (toggle Enable OFF/ON to retry). Logs print esp-tls / mbedtls **codes and flags only**
+   (no peer-cert PEM).
 
 If steps 4–6 never appear while UI sat on `starting`, you were on a build before deferred init;
 reflash this branch tip.

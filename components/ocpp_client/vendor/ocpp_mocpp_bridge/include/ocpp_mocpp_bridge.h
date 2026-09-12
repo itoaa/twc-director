@@ -78,6 +78,10 @@ void twc_ocpp_mocpp_loop(void);
 bool twc_ocpp_mocpp_is_connected(void);
 void twc_ocpp_mocpp_stop(void);
 
+/* Last WS/TLS error category (stable literal, e.g. error:tls-verify). nullptr if none.
+ * Never a secret or PEM. */
+const char *twc_ocpp_mocpp_last_error(void);
+
 /* Push latest director telemetry (called from ocpp_client loop). */
 void twc_ocpp_mocpp_set_telemetry(const twc_ocpp_telemetry_t *telemetry);
 

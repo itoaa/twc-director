@@ -9,6 +9,20 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <errno.h>
+#include <esp_err.h>
+
+#if defined(__has_include)
+#if __has_include(<esp_tls_errors.h>)
+#include <esp_tls_errors.h>
+#endif
+#if __has_include(<mbedtls/x509.h>)
+#include <mbedtls/x509.h>
+#endif
+#if __has_include(<mbedtls/ssl.h>)
+#include <mbedtls/ssl.h>
+#endif
+#endif
 
 #if defined(CONFIG_MBEDTLS_CERTIFICATE_BUNDLE) && CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
 #include <esp_crt_bundle.h>
@@ -182,6 +196,62 @@ bool insecure_host_allowed(const std::string &host) {
   return hostname_resolves_rfc1918(host);
 }
 
+/* Stable mbedtls / esp-tls numbers if headers were not pulled in. Never log PEM. */
+#ifndef MBEDTLS_X509_BADCERT_EXPIRED
+#define TWC_BADCERT_EXPIRED 0x01
+#define TWC_BADCERT_REVOKED 0x02
+#define TWC_BADCERT_CN_MISMATCH 0x04
+#define TWC_BADCERT_NOT_TRUSTED 0x08
+#define TWC_BADCERT_MISSING 0x10
+#define TWC_BADCERT_OTHER 0x40
+#define TWC_BADCERT_FUTURE 0x80
+#else
+#define TWC_BADCERT_EXPIRED MBEDTLS_X509_BADCERT_EXPIRED
+#define TWC_BADCERT_REVOKED MBEDTLS_X509_BADCERT_REVOKED
+#define TWC_BADCERT_CN_MISMATCH MBEDTLS_X509_BADCERT_CN_MISMATCH
+#define TWC_BADCERT_NOT_TRUSTED MBEDTLS_X509_BADCERT_NOT_TRUSTED
+#define TWC_BADCERT_MISSING MBEDTLS_X509_BADCERT_MISSING
+#define TWC_BADCERT_OTHER MBEDTLS_X509_BADCERT_OTHER
+#define TWC_BADCERT_FUTURE MBEDTLS_X509_BADCERT_FUTURE
+#endif
+#ifndef MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE
+#define TWC_ERR_SSL_FATAL_ALERT (-0x7780)
+#else
+#define TWC_ERR_SSL_FATAL_ALERT MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE
+#endif
+
+const char *classify_ws_error(const esp_websocket_error_codes_t &e) {
+  const int flags = e.esp_tls_cert_verify_flags;
+  if (flags & TWC_BADCERT_CN_MISMATCH) {
+    return "error:tls-cn";
+  }
+  if (flags & (TWC_BADCERT_EXPIRED | TWC_BADCERT_REVOKED | TWC_BADCERT_NOT_TRUSTED | TWC_BADCERT_MISSING |
+               TWC_BADCERT_OTHER | TWC_BADCERT_FUTURE)) {
+    return "error:tls-verify";
+  }
+  if (e.esp_tls_stack_err == TWC_ERR_SSL_FATAL_ALERT) {
+    return "error:tls-alert";
+  }
+#ifdef ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT
+  if (e.esp_tls_last_esp_err == ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT) {
+    return "error:tls-timeout";
+  }
+#endif
+  if (e.error_type == WEBSOCKET_ERROR_TYPE_PONG_TIMEOUT) {
+    return "error:tls-timeout";
+  }
+  if (e.esp_transport_sock_errno == ETIMEDOUT) {
+    return "error:tls-timeout";
+  }
+  if (e.error_type == WEBSOCKET_ERROR_TYPE_HANDSHAKE) {
+    return "error:ws-handshake";
+  }
+  if (e.esp_tls_last_esp_err != 0 || e.esp_tls_stack_err != 0 || flags != 0) {
+    return "error:tls-verify";
+  }
+  return "error:ws-error";
+}
+
 void esp_ws_event_handler(void *handler_args, esp_event_base_t, int32_t event_id, void *event_data) {
   auto *self = static_cast<EspIdfWsConnection *>(handler_args);
   if (self) {
@@ -190,14 +260,20 @@ void esp_ws_event_handler(void *handler_args, esp_event_base_t, int32_t event_id
 }
 }  // namespace
 
+void EspIdfWsConnection::set_error_(const char *code) {
+  last_error_ = code; /* must be a string literal — never PEM/secrets */
+}
+
 EspIdfWsConnection::~EspIdfWsConnection() { end(); }
 
 bool EspIdfWsConnection::begin(const std::string &url, const std::string &username,
                                const std::string &auth_key, const EspIdfWsTlsOptions &tls) {
+  last_error_ = nullptr;
   const bool want_wss = is_wss_url(url);
   const bool want_ws = is_ws_url(url);
   if (!want_wss && !want_ws) {
     ESP_LOGE(TAG, "Refusing non-ws/wss URL");
+    set_error_("error:not-wss");
     return false;
   }
   log_ws_target("ws-begin-enter", url);
@@ -209,12 +285,14 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
   bool cleartext = false;
   if (!parse_host_port_path(url, &host, &port, &path, &cleartext)) {
     ESP_LOGE(TAG, "ws-begin: could not parse host from URL");
+    set_error_("error:ws-init");
     return false;
   }
 
   if (cleartext) {
     if (!tls.allow_cleartext_ws) {
       ESP_LOGE(TAG, "Refusing ws:// — allow_cleartext_ws is false (CISO: use wss://)");
+      set_error_("error:cleartext-disabled");
       return false;
     }
     if (!insecure_host_allowed(host)) {
@@ -222,6 +300,7 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
                "allow_cleartext_ws REJECTED for host=%s — not RFC1918 / .local / lab-resolved "
                "(CISO: never cleartext against public IP/DNS/cloud). Use wss://.",
                host.c_str());
+      set_error_("error:tls-host-rejected");
       return false;
     }
     ESP_LOGW(TAG,
@@ -229,13 +308,18 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
              host.c_str());
   }
 
+  const bool have_ca = tls.ca_cert_pem != nullptr && tls.ca_cert_pem[0] != '\0';
   bool use_insecure = false;
-  if (!cleartext && tls.allow_insecure_tls) {
+  /* CISO: effective CA (YAML or runtime) wins over allow_insecure_tls — no skip-verify. */
+  if (!cleartext && tls.allow_insecure_tls && have_ca) {
+    ESP_LOGI(TAG, "ws-begin: ca_cert set — verify via custom CA (allow_insecure_tls ignored)");
+  } else if (!cleartext && tls.allow_insecure_tls) {
     if (!insecure_host_allowed(host)) {
       ESP_LOGE(TAG,
                "allow_insecure_tls REJECTED for host=%s — not RFC1918 / .local / lab-resolved "
                "(CISO: never skip verify against public IP/DNS/cloud). Keep CA or crt_bundle.",
                host.c_str());
+      set_error_("error:tls-host-rejected");
       return false;
     }
     use_insecure = true;
@@ -263,12 +347,28 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
     cfg.crt_bundle_attach = nullptr;
     cfg.use_global_ca_store = false;
     ESP_LOGI(TAG, "ws-begin: WEBSOCKET_TRANSPORT_OVER_TCP (cleartext)");
+  } else if (have_ca) {
+    /* Same verify path as YAML ca_cert: custom CA, skip CN only for IPv4 literal. */
+    ca_cert_owned_ = tls.ca_cert_pem;
+    cfg.cert_pem = ca_cert_owned_.c_str();
+    cfg.crt_bundle_attach = nullptr;
+    ESP_LOGI(TAG, "ws-begin: ca_cert PEM set (%u bytes, not logged)",
+             static_cast<unsigned>(ca_cert_owned_.size()));
+    unsigned a, b, c, d;
+    if (is_ipv4_literal(host, &a, &b, &c, &d)) {
+      cfg.skip_cert_common_name_check = true;
+      ESP_LOGI(TAG, "ws-begin: skip_cert_common_name_check for IP host=%s (chain still verified)",
+               host.c_str());
+    } else {
+      ESP_LOGI(TAG, "ws-begin: server verify via custom CA");
+    }
   } else if (use_insecure) {
 #if !defined(CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY) || !CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY
     ESP_LOGE(TAG,
              "allow_insecure_tls accepted for host=%s but firmware built without "
              "CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY — rebuild with allow_insecure_tls: true",
              host.c_str());
+    set_error_("error:tls-insecure-needs-rebuild");
     return false;
 #else
     // Leave cert_pem / crt_bundle unset so esp_tls takes the skip-verify path.
@@ -277,31 +377,20 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
     cfg.use_global_ca_store = false;
     cfg.skip_cert_common_name_check = true;
 #endif
-  } else if (tls.ca_cert_pem != nullptr && tls.ca_cert_pem[0] != '\0') {
-    ca_cert_owned_ = tls.ca_cert_pem;
-    cfg.cert_pem = ca_cert_owned_.c_str();
-    cfg.crt_bundle_attach = nullptr;
-    // IP + lab CA often has CN/SAN mismatch; skip CN only (chain still verified).
-    unsigned a, b, c, d;
-    if (is_ipv4_literal(host, &a, &b, &c, &d)) {
-      cfg.skip_cert_common_name_check = true;
-      ESP_LOGI(TAG, "ws-begin: ca_cert PEM set; skip_cert_common_name_check for IP host=%s",
-               host.c_str());
-    } else {
-      ESP_LOGI(TAG, "ws-begin: ca_cert PEM set (server verify via custom CA)");
-    }
   } else if (tls.crt_bundle_attach) {
 #if defined(CONFIG_MBEDTLS_CERTIFICATE_BUNDLE) && CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     ESP_LOGI(TAG, "ws-begin: crt_bundle_attach enabled (server verify via CA bundle)");
 #else
     ESP_LOGE(TAG, "ws-begin: crt_bundle_attach requested but CONFIG_MBEDTLS_CERTIFICATE_BUNDLE off");
+    set_error_("error:tls-no-verify-option");
     return false;
 #endif
   } else {
     ESP_LOGE(TAG,
              "ws-begin: no TLS verify option (set crt_bundle_attach, ca_cert, or lab-only "
              "allow_insecure_tls) — refusing SSL_SETUP_FAILED");
+    set_error_("error:tls-no-verify-option");
     return false;
   }
 
@@ -309,6 +398,7 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
   client_ = esp_websocket_client_init(&cfg);
   if (!client_) {
     ESP_LOGE(TAG, "esp_websocket_client_init failed");
+    set_error_("error:ws-init");
     return false;
   }
   esp_websocket_register_events(static_cast<esp_websocket_client_handle_t>(client_), WEBSOCKET_EVENT_ANY,
@@ -316,6 +406,7 @@ bool EspIdfWsConnection::begin(const std::string &url, const std::string &userna
   ESP_LOGI(TAG, "ws-begin: esp_websocket_client_start...");
   if (esp_websocket_client_start(static_cast<esp_websocket_client_handle_t>(client_)) != ESP_OK) {
     ESP_LOGE(TAG, "esp_websocket_client_start failed");
+    set_error_("error:ws-init");
     end();
     return false;
   }
@@ -352,6 +443,7 @@ void EspIdfWsConnection::on_event_(int32_t event_id, void *event_data) {
   switch (event_id) {
     case WEBSOCKET_EVENT_CONNECTED:
       connected_ = true;
+      last_error_ = nullptr;
       last_connected_ms_ = now_ms();
       ESP_LOGI(TAG, "WEBSOCKET_EVENT_CONNECTED");
       break;
@@ -359,6 +451,29 @@ void EspIdfWsConnection::on_event_(int32_t event_id, void *event_data) {
       connected_ = false;
       ESP_LOGW(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
       break;
+    case WEBSOCKET_EVENT_ERROR: {
+      connected_ = false;
+      const char *cat = "error:ws-error";
+      int type = 0, tls_err = 0, stack = 0, flags = 0, sock = 0, hs = 0;
+      if (data != nullptr) {
+        const auto &e = data->error_handle;
+        type = static_cast<int>(e.error_type);
+        tls_err = static_cast<int>(e.esp_tls_last_esp_err);
+        stack = e.esp_tls_stack_err;
+        flags = e.esp_tls_cert_verify_flags;
+        sock = e.esp_transport_sock_errno;
+        hs = e.esp_ws_handshake_status_code;
+        cat = classify_ws_error(e);
+      }
+      set_error_(cat);
+      ESP_LOGE(TAG,
+               "WEBSOCKET_EVENT_ERROR category=%s type=%d tls_err=0x%x (%s) stack=0x%x "
+               "verify_flags=0x%x sock_errno=%d hs_http=%d (peer cert / PEM not logged)",
+               cat, type, static_cast<unsigned>(tls_err),
+               esp_err_to_name(static_cast<esp_err_t>(tls_err)), static_cast<unsigned>(stack),
+               static_cast<unsigned>(flags), sock, hs);
+      break;
+    }
     case WEBSOCKET_EVENT_DATA:
       if (data && data->op_code == WS_TRANSPORT_OPCODES_TEXT && data->data_ptr && data->data_len > 0 &&
           receive_txt_) {

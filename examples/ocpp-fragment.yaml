@@ -1,6 +1,6 @@
 # Example fragment — merge into a director YAML (not used by default CI).
-# Secrets via !secret only. Runtime HA entities can override URL/id/key and
-# enable/disable without reflash. Lab remote-* flags DEFAULT OFF.
+# Secrets via !secret only. Runtime HA entities can override URL/id/key/ca_cert
+# and enable/disable without reflash. Lab remote-* flags DEFAULT OFF.
 
 ocpp_client:
   id: twc_ocpp
@@ -33,6 +33,8 @@ ocpp_client:
     name: OCPP Charge Point ID
   authorization_key_text:
     name: OCPP Authorization Key
+  ca_cert_text:
+    name: OCPP CA Cert                 # paste PEM; state is set (N bytes), never raw PEM
   fail_safe_button:
     name: "OCPP återställ till fail-safe"
 

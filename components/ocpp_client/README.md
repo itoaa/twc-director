@@ -9,7 +9,7 @@ Native **OCPP 1.6J** Charge Point client for the TWC Director. Embeds
 | Rule | Behaviour |
 |------|-----------|
 | Transport | `wss://` default; `ws://` only with `allow_cleartext_ws` + RFC1918/`.local` (never public) |
-| Secrets | `!secret` and/or HA password text → NVS; never commit |
+| Secrets | `!secret` and/or HA password text → NVS; never commit. `ca_cert_text` state is redacted (`set (N bytes)`), never raw PEM |
 | Default | `enabled: false` / omit block; HA enable can stop cleanly |
 | Hard caps | CSMS wishes clamped by director hard cap / per-EVSE max |
 | CSMS down | `fail_safe_amps` (≤ hard cap) |
@@ -35,7 +35,12 @@ CitrineOS 1.6 WSS is often port **8092** (custom labs may use 8090). After wss h
 ## HA entities
 
 See [`examples/ocpp-fragment.yaml`](../../examples/ocpp-fragment.yaml): enable switch,
-CSMS URL / CP id / auth key texts, status sensors, fail-safe button, lab remote flags.
+CSMS URL / CP id / auth key / **CA cert** texts, status sensors, fail-safe button, lab remote flags.
+
+**Runtime CA:** paste a PEM into `ca_cert_text`. It is stored in NVS and used ahead of YAML
+`ca_cert` and the Mozilla bundle (and ahead of `allow_insecure_tls` if both are set). HA state
+shows `set (N bytes)` — never the PEM. Clear the field (empty) to **delete** the NVS override
+and fall back to YAML `ca_cert`, or the bundle if YAML is unset.
 
 ## Metering / status
 
@@ -62,5 +67,9 @@ Details: [`vendor/README.md`](vendor/README.md), [`docs/OCPP.md`](../../docs/OCP
 `connection_state` goes to **`connecting`** immediately (init runs on the next loop tick).
 Serial tags `ocpp_client` / `ocpp_bridge` / `ocpp_ws` print host/port/path **without** secrets.
 If the socket never connects, after ~45s you get `error:connect-timeout` + fail-safe.
+TLS handshake failures publish a specific `connection_state` (`error:tls-verify`,
+`error:tls-cn`, `error:tls-alert`, `error:tls-timeout`, `error:tls-no-verify-option`,
+`error:tls-insecure-needs-rebuild`) instead of a generic `error:ws-init` when the cause is known.
+Logs include mbedtls/esp-tls codes only — never peer-cert PEM.
 Full sequence: [`docs/OCPP.md`](../../docs/OCPP.md#connection-log-sequence-enable-on).
 
