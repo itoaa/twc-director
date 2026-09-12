@@ -28,8 +28,14 @@ plugged/occupied/ev_ready/evse_ready). Gen2→OCPP status is approximate.
 
 ## Vendoring
 
+MicroOCPP (`v1.2.0`) and ArduinoJson (`v6.21.5`) live as **git submodules** under
+`vendor/`. HA Device Builder does not need a manual fetch: if CMakeLists are
+missing, `__init__.py` runs `scripts/fetch_deps.sh` automatically.
+
 ```bash
-# First time / after pin change:
+# Local clone / pin change:
+git submodule update --init --recursive
+# or:
 ./components/ocpp_client/scripts/fetch_deps.sh
 ```
 

@@ -1,7 +1,7 @@
 # OCPP 1.6J PoC (native on ESP)
 
 **Branch:** `feature/ocpp-1.6`  
-**Status:** lab experiment — default `tesla-director.yaml` has no OCPP block; `tesla-director-ocpp.yaml` is `enabled: true` and CI-verified (fetch_deps + compile). Live CSMS still needs real secrets + network.
+**Status:** lab experiment — default `tesla-director.yaml` has no OCPP block; `tesla-director-ocpp.yaml` is `enabled: true` and CI-verified (git submodules + fetch_deps + compile). Live CSMS still needs real secrets + network.
 
 ## Model
 
@@ -97,15 +97,41 @@ SlotTelemetry get_slot_telemetry(size_t slot_index) const;
 
 ## Library / vendoring
 
+MicroOCPP **v1.2.0** and ArduinoJson **v6.21.5** are **git submodules** under
+`components/ocpp_client/vendor/`. Runtime glue: committed `ocpp_mocpp_bridge` C API.
+WSS: `espressif/esp_websocket_client`.
+
+### Home Assistant Device Builder
+
+No manual `fetch_deps.sh` needed. Point `external_components` at this branch:
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/itoaa/twc-director.git
+      ref: feature/ocpp-1.6
+    components: [twc_director, ocpp_client]
+    refresh: 0s   # tip: force re-clone after pushes to the branch
+```
+
+If ESPHome’s git clone did not initialize submodules, `ocpp_client` detects missing
+`vendor/*/CMakeLists.txt` when `enabled: true` and **automatically runs**
+`scripts/fetch_deps.sh` (clear log warning), then patches MicroOCPP so ArduinoJson
+is `PRIV_INCLUDE_DIRS`.
+
+### Local / CI
+
 ```bash
-# First time / after pin change:
+git submodule update --init --recursive
+# or (submodule OR clone + CMake patch):
 ./components/ocpp_client/scripts/fetch_deps.sh
 ```
 
-Pins: `MICROOCPP_REF` (default `1.2.0`), `ARDUINOJSON_REF` (default `6.21.5`).  
-Runtime glue: committed `ocpp_mocpp_bridge` C API. WSS: `espressif/esp_websocket_client`.
+Pins (clone fallback env): `MICROOCPP_REF` (default `1.2.0`), `ARDUINOJSON_REF` (default `6.21.5`).
 
-`enabled: false` / omitted block builds do **not** fetch or link MicroOCPP. CI’s OCPP job fetches deps and compiles `enabled: true`.
+`enabled: false` / omitted block builds do **not** need or link MicroOCPP. CI checks out
+with `submodules: recursive` and still runs `fetch_deps` as safety (CMake patch).
 
 ## Hardware / flash·RAM
 
@@ -131,7 +157,7 @@ Local compile 2026-09-11 (also re-checked in CI «Firmware size» step):
 ## Lab checklist (live CSMS)
 
 1. `cp secrets.yaml.example secrets.yaml` — `wss://…`, CP id, auth key
-2. `./components/ocpp_client/scripts/fetch_deps.sh`
+2. `git submodule update --init --recursive` (or rely on HA auto-fetch_deps)
 3. Flash `tesla-director-ocpp.yaml` (keep `tesla-director.yaml` clean)
 4. Prefer **lab CSMS on LAN/VPN**; leave remote-* switches OFF unless risk-accepted
 5. Confirm BootNotification / Heartbeat; MeterValues move with TWC telemetry

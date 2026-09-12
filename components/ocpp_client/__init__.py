@@ -4,6 +4,8 @@
 # When compile-time enabled path is used (USE_MICROOCPP), vendor deps required.
 
 from pathlib import Path
+import logging
+import subprocess
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
@@ -51,6 +53,111 @@ twc_director_ns = cg.esphome_ns.namespace("twc_director")
 TWCDirectorComponent = twc_director_ns.class_("TWCDirectorComponent", cg.Component)
 
 
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _vendor_cmake_paths():
+    vendor_dir = Path(__file__).parent / "vendor"
+    return (
+        vendor_dir / "MicroOcpp" / "CMakeLists.txt",
+        vendor_dir / "ArduinoJson" / "CMakeLists.txt",
+    )
+
+
+def _patch_mocpp_priv_includes(mocpp_cmake: Path) -> None:
+    """Make ArduinoJson a PRIV include so it does not override ESPHome JSON."""
+    if not mocpp_cmake.is_file():
+        return
+    import re
+
+    text = mocpp_cmake.read_text(encoding="utf-8")
+    if "PRIV_INCLUDE_DIRS" in text and "ArduinoJson" in text:
+        return
+    pat = re.compile(
+        r'idf_component_register\(SRCS \$\{MO_SRC\}\s+'
+        r'INCLUDE_DIRS "\./src" "\.\./ArduinoJson/src"\s+'
+        r'PRIV_REQUIRES spiffs\s*\)',
+        re.M,
+    )
+    new = (
+        "idf_component_register(SRCS ${MO_SRC}\n"
+        '            INCLUDE_DIRS "./src"\n'
+        '            PRIV_INCLUDE_DIRS "../ArduinoJson/src"\n'
+        "            PRIV_REQUIRES spiffs\n"
+        "            )"
+    )
+    text2, n = pat.subn(new, text, count=1)
+    if n:
+        mocpp_cmake.write_text(text2, encoding="utf-8")
+        _LOGGER.info(
+            "Patched MicroOcpp CMakeLists: ArduinoJson → PRIV_INCLUDE_DIRS"
+        )
+    else:
+        _LOGGER.warning(
+            "MicroOcpp CMakeLists format unexpected; ArduinoJson may leak includes"
+        )
+
+
+def _ensure_vendor_deps() -> None:
+    """Populate vendor/MicroOcpp + ArduinoJson when missing (HA / non-recursive clone).
+
+    ESPHome external_components git clone does not always init submodules.
+    Prefer git submodules when present; otherwise scripts/fetch_deps.sh clones
+    the pinned tags and applies the CMake PRIV_INCLUDE_DIRS patch.
+    """
+    mocpp, ajson = _vendor_cmake_paths()
+    if mocpp.is_file() and ajson.is_file():
+        _patch_mocpp_priv_includes(mocpp)
+        return
+
+    script = Path(__file__).parent / "scripts" / "fetch_deps.sh"
+    _LOGGER.warning(
+        "ocpp_client.enabled: true but vendor MicroOCPP/ArduinoJson CMakeLists "
+        "missing (submodules not initialized?). Running %s …",
+        script,
+    )
+    if not script.is_file():
+        raise cv.Invalid(
+            "enabled: true requires MicroOCPP + ArduinoJson under "
+            "components/ocpp_client/vendor/, and fetch_deps.sh is missing. "
+            "Use external_components git source with submodules, or run: "
+            "components/ocpp_client/scripts/fetch_deps.sh"
+        )
+    try:
+        subprocess.run(
+            ["bash", str(script)],
+            check=True,
+            cwd=str(script.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.CalledProcessError as err:
+        out = (err.stdout or "").strip()
+        _LOGGER.error("fetch_deps.sh failed:\n%s", out)
+        raise cv.Invalid(
+            "enabled: true could not fetch MicroOCPP + ArduinoJson. "
+            "Check network / git, or run: components/ocpp_client/scripts/fetch_deps.sh"
+        ) from err
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise cv.Invalid(
+            f"enabled: true failed to run fetch_deps.sh ({err}). "
+            "Run: components/ocpp_client/scripts/fetch_deps.sh"
+        ) from err
+
+    mocpp, ajson = _vendor_cmake_paths()
+    if not mocpp.is_file() or not ajson.is_file():
+        raise cv.Invalid(
+            "enabled: true requires MicroOCPP + ArduinoJson under "
+            "components/ocpp_client/vendor/ after fetch_deps. "
+            "Run: components/ocpp_client/scripts/fetch_deps.sh"
+        )
+    _LOGGER.info("OCPP vendor deps ready (MicroOCPP + ArduinoJson).")
+    _patch_mocpp_priv_includes(mocpp)
+
+
 def _validate_wss_url(value):
     value = cv.url(value)
     if not value.lower().startswith("wss://"):
@@ -69,15 +176,7 @@ def _validate_fail_safe(config):
         for key in (CONF_CSMS_URL, CONF_CHARGE_POINT_ID, CONF_AUTHORIZATION_KEY):
             if key not in config:
                 raise cv.Invalid(f"'{key}' is required when ocpp_client.enabled is true")
-        vendor_dir = Path(__file__).parent / "vendor"
-        mocpp = vendor_dir / "MicroOcpp" / "CMakeLists.txt"
-        ajson = vendor_dir / "ArduinoJson" / "CMakeLists.txt"
-        if not mocpp.is_file() or not ajson.is_file():
-            raise cv.Invalid(
-                "enabled: true requires MicroOCPP + ArduinoJson under "
-                "components/ocpp_client/vendor/. Run: "
-                "components/ocpp_client/scripts/fetch_deps.sh"
-            )
+        _ensure_vendor_deps()
     return config
 
 

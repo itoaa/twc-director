@@ -432,6 +432,3 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# MicroOCPP / ArduinoJson trees fetched by components/ocpp_client/scripts/fetch_deps.sh
-components/ocpp_client/vendor/MicroOcpp/
-components/ocpp_client/vendor/ArduinoJson/

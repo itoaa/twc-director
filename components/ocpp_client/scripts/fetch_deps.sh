@@ -1,39 +1,63 @@
 #!/usr/bin/env bash
-# Fetch MicroOCPP + ArduinoJson as sibling ESP-IDF components under vendor/.
-# Required only when building with ocpp_client.enabled: true.
+# Ensure MicroOCPP + ArduinoJson under vendor/ (git submodules preferred).
+# Required when building with ocpp_client.enabled: true.
+# ESPHome external_components often clone without --recursive; CI and
+# __init__.py fallback call this script so HA Device Builder still works.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VENDOR="$ROOT/vendor"
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
 MO_REF="${MICROOCPP_REF:-1.2.0}"
 AJ_REF="${ARDUINOJSON_REF:-6.21.5}"
 
 mkdir -p "$VENDOR"
 cd "$VENDOR"
 
+try_submodule() {
+  local path="$1"
+  if [[ -f "$REPO_ROOT/.gitmodules" ]] && command -v git >/dev/null 2>&1; then
+    if git -C "$REPO_ROOT" submodule update --init --depth 1 -- "$path" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 fetch_repo() {
   local name="$1" url="$2" ref="$3"
+  local relpath="components/ocpp_client/vendor/$name"
+
   if [[ -f "$name/CMakeLists.txt" ]]; then
-    echo "==> $name already present — updating to $ref"
-    git -C "$name" fetch --depth 1 origin "v$ref" 2>/dev/null \
-      || git -C "$name" fetch --depth 1 origin "$ref" 2>/dev/null \
-      || git -C "$name" fetch --tags --depth 1 origin || true
-    git -C "$name" checkout "v$ref" 2>/dev/null || git -C "$name" checkout "$ref"
-  else
-    echo "==> Cloning $name @ $ref"
-    rm -rf "$name"
-    # Prefer v-prefixed release tags (ArduinoJson / MicroOcpp).
-    git clone --depth 1 --branch "v$ref" "$url" "$name" \
-      || git clone --depth 1 --branch "$ref" "$url" "$name" \
-      || { git clone --depth 1 "$url" "$name"; git -C "$name" checkout "v$ref" || git -C "$name" checkout "$ref"; }
+    echo "==> $name already present"
+    return 0
+  fi
+
+  echo "==> Ensuring $name @ $ref"
+  if try_submodule "$relpath" && [[ -f "$name/CMakeLists.txt" ]]; then
+    echo "==> $name from git submodule"
+    # Detached pin (submodule gitlink); optionally move to requested tag.
+    git -C "$name" fetch --tags --depth 1 origin "v$ref" 2>/dev/null \
+      || git -C "$name" fetch --tags --depth 1 origin "$ref" 2>/dev/null || true
+    git -C "$name" checkout "v$ref" 2>/dev/null || git -C "$name" checkout "$ref" 2>/dev/null || true
+    return 0
+  fi
+
+  echo "==> Cloning $name @ $ref (submodule unavailable)"
+  rm -rf "$name"
+  git clone --depth 1 --branch "v$ref" "$url" "$name" \
+    || git clone --depth 1 --branch "$ref" "$url" "$name" \
+    || { git clone --depth 1 "$url" "$name"; git -C "$name" checkout "v$ref" || git -C "$name" checkout "$ref"; }
+
+  # Drop huge trees only for plain clones (not submodule checkouts).
+  if [[ "$name" == "MicroOcpp" ]]; then
+    rm -rf MicroOcpp/tests MicroOcpp/docs MicroOcpp/examples MicroOcpp/.github || true
+  elif [[ "$name" == "ArduinoJson" ]]; then
+    rm -rf ArduinoJson/extras ArduinoJson/.github || true
   fi
 }
 
 fetch_repo MicroOcpp https://github.com/matth-x/MicroOcpp.git "$MO_REF"
 fetch_repo ArduinoJson https://github.com/bblanchon/ArduinoJson.git "$AJ_REF"
-
-# Drop huge trees we never compile.
-rm -rf MicroOcpp/tests MicroOcpp/docs MicroOcpp/examples MicroOcpp/.github || true
-rm -rf ArduinoJson/extras ArduinoJson/.github || true
 
 # Keep ArduinoJson headers PRIVATE so they do not override ESPHome's ArduinoJson
 # (public INCLUDE_DIRS would break esphome/components/json).

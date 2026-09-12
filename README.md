@@ -81,7 +81,21 @@ external_components:
       # ref: main   # valfritt: pinna branch/tag
 ```
 
-Kopiera och anpassa `tesla-director.yaml`.
+**OCPP (branch `feature/ocpp-1.6`):**
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/itoaa/twc-director.git
+      ref: feature/ocpp-1.6
+    components: [twc_director, ocpp_client]
+    refresh: 0s   # tip: tvinga omklon efter branch-push
+```
+
+Ingen manuell `fetch_deps.sh` behövs i HA — saknade vendor-submoduler hämtas automatiskt vid `ocpp_client.enabled: true`.
+
+Kopiera och anpassa `tesla-director.yaml` (eller `tesla-director-ocpp.yaml` / `examples/ocpp-fragment.yaml` för OCPP).
 
 ### ESPHome 2026.7.x
 
@@ -256,5 +270,5 @@ Lab RemoteStart/Stop/Reset/Unlock are **DEFAULT OFF**; UpdateFirmware always rej
 - Optional OCPP YAML (CI-verified `enabled: true`): [`tesla-director-ocpp.yaml`](tesla-director-ocpp.yaml)
 
 `main` / default [`tesla-director.yaml`](tesla-director.yaml) stays without OCPP.
-First time / after pin change: `./components/ocpp_client/scripts/fetch_deps.sh` + `ocpp_*` secrets.
+Vendor libs are git submodules (auto-fetched in HA if missing). Local: `git submodule update --init --recursive` or `./components/ocpp_client/scripts/fetch_deps.sh` + `ocpp_*` secrets.
 

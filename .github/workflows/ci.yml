@@ -24,13 +24,15 @@ jobs:
           - yaml: tesla-director.yaml
             esphome: "latest"
             ocpp: false
-          # Prove ocpp_client builds with enabled:true + MicroOCPP (fetch_deps).
+          # Prove ocpp_client builds with enabled:true + MicroOCPP (submodules + fetch_deps).
           - yaml: tesla-director-ocpp.yaml
             esphome: "2026.7.3"
             ocpp: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Write CI secrets
         run: |
@@ -50,7 +52,7 @@ jobs:
           sed -i 's/^[[:space:]]*//' secrets.yaml
           cat secrets.yaml
 
-      - name: Fetch OCPP vendor deps
+      - name: Ensure OCPP vendor deps (patch CMake / safety if submodules empty)
         if: matrix.ocpp
         run: ./components/ocpp_client/scripts/fetch_deps.sh
 
