@@ -447,6 +447,12 @@ void OcppClientComponent::maybe_init_microocpp_() {
   cfg.vendor = this->vendor_.c_str();
   cfg.model = this->model_.c_str();
   cfg.num_connectors = num_connectors;
+  cfg.allow_insecure_tls = this->allow_insecure_tls_;
+  cfg.crt_bundle_attach = this->crt_bundle_attach_;
+  cfg.ca_cert_pem = this->ca_cert_.empty() ? nullptr : this->ca_cert_.c_str();
+  if (this->allow_insecure_tls_) {
+    ESP_LOGW(TAG, "allow_insecure_tls enabled in config (CISO: only RFC1918/.local lab hosts)");
+  }
   cfg.flags.allow_remote_start = this->allow_remote_start_;
   cfg.flags.allow_remote_stop = this->allow_remote_stop_;
   cfg.flags.allow_reset = this->allow_reset_;
@@ -463,7 +469,11 @@ void OcppClientComponent::maybe_init_microocpp_() {
   if (!twc_ocpp_mocpp_start(&cfg)) {
     ESP_LOGE(TAG, "twc_ocpp_mocpp_start failed after %ums", static_cast<unsigned>(millis() - t0));
     this->init_pending_ = false;
-    this->publish_state_(false, "error:ws-init");
+    if (this->allow_insecure_tls_) {
+      this->publish_state_(false, "error:tls-insecure-rejected-or-ws");
+    } else {
+      this->publish_state_(false, "error:ws-init");
+    }
     this->apply_fail_safe_("mocpp/ws init failed");
     return;
   }

@@ -60,6 +60,10 @@ typedef struct {
   const char *vendor;
   const char *model;
   unsigned num_connectors; /* 1..TWC_OCPP_MAX_CONNECTORS (MO_NUMCONNECTORS = n+1) */
+  /* TLS: default verify via crt_bundle. allow_insecure_tls is lab-only (RFC1918/.local). */
+  bool allow_insecure_tls;       /* DEFAULT false — runtime gated to private lab hosts */
+  bool crt_bundle_attach;        /* DEFAULT true when not insecure / no ca_cert */
+  const char *ca_cert_pem;       /* optional PEM CA string; nullptr = unset */
   twc_ocpp_feature_flags_t flags;
   twc_ocpp_smart_current_cb_t on_smart_current;           /* connector 0 / global */
   twc_ocpp_connector_current_cb_t on_connector_current; /* connector 1..N */

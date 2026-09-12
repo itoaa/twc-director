@@ -162,7 +162,18 @@ extern "C" bool twc_ocpp_mocpp_start(const twc_ocpp_mocpp_config_t *cfg) {
       ESP_LOGE(TAG, "before g_ws->begin: non-wss url_len=%u", static_cast<unsigned>(url.size()));
     }
   }
-  if (!g_ws->begin(cfg->wss_url, user, pass)) {
+  twc_ocpp::EspIdfWsTlsOptions tls{};
+  tls.allow_insecure_tls = cfg->allow_insecure_tls;
+  tls.crt_bundle_attach = cfg->crt_bundle_attach;
+  tls.ca_cert_pem = cfg->ca_cert_pem;
+  if (tls.allow_insecure_tls) {
+    ESP_LOGW(TAG, "TLS: allow_insecure_tls requested (will apply only if host is RFC1918/.local lab)");
+  } else if (tls.ca_cert_pem && tls.ca_cert_pem[0]) {
+    ESP_LOGI(TAG, "TLS: custom ca_cert PEM (%u bytes)", (unsigned) strlen(tls.ca_cert_pem));
+  } else if (tls.crt_bundle_attach) {
+    ESP_LOGI(TAG, "TLS: crt_bundle_attach (default verify)");
+  }
+  if (!g_ws->begin(cfg->wss_url, user, pass, tls)) {
     ESP_LOGE(TAG, "after g_ws->begin: FAILED");
     delete g_ws;
     g_ws = nullptr;

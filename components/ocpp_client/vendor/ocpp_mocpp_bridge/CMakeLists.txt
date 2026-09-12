@@ -3,5 +3,5 @@ idf_component_register(
   INCLUDE_DIRS "include"
   PRIV_INCLUDE_DIRS "." "../ArduinoJson/src"
   REQUIRES MicroOcpp
-  PRIV_REQUIRES espressif__esp_websocket_client
+  PRIV_REQUIRES espressif__esp_websocket_client mbedtls
 )

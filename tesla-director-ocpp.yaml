@@ -183,6 +183,9 @@ ocpp_client:
   charge_point_id: !secret ocpp_charge_point_id
   authorization_key: !secret ocpp_authorization_key
   fail_safe_amps: 6
+  # TLS: verify by default (crt_bundle). For RFC1918 lab self-signed PoC only:
+  # allow_insecure_tls: true
+  # Prefer: ca_cert: !secret ocpp_lab_ca_pem
   connected:
     name: OCPP CSMS Connected
   connection_state:

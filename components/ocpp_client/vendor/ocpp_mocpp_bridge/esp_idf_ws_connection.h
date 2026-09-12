@@ -5,12 +5,19 @@
 
 namespace twc_ocpp {
 
+struct EspIdfWsTlsOptions {
+  bool allow_insecure_tls{false}; /* lab-only; gated to RFC1918 / .local at begin() */
+  bool crt_bundle_attach{true};   /* Mozilla CA bundle (default verify path) */
+  const char *ca_cert_pem{nullptr}; /* optional PEM CA; overrides bundle when set */
+};
+
 class EspIdfWsConnection : public MicroOcpp::Connection {
  public:
   EspIdfWsConnection() = default;
   ~EspIdfWsConnection() override;
 
-  bool begin(const std::string &wss_url, const std::string &username, const std::string &auth_key);
+  bool begin(const std::string &wss_url, const std::string &username, const std::string &auth_key,
+             const EspIdfWsTlsOptions &tls = {});
   void end();
 
   void loop() override;
@@ -28,6 +35,7 @@ class EspIdfWsConnection : public MicroOcpp::Connection {
   bool connected_{false};
   unsigned long last_recv_ms_{0};
   unsigned long last_connected_ms_{0};
+  std::string ca_cert_owned_; /* keeps cert_pem alive for websocket client lifetime */
 };
 
 }  // namespace twc_ocpp

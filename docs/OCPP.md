@@ -24,6 +24,32 @@
 - Lab remotes (**RemoteStart/Stop, Reset, Unlock**) are **feature-flagged DEFAULT OFF**
 - **UpdateFirmware / remote FW: always rejected** until signed image + rollback exist
 - Enabling remotes against a **public cloud CSMS** requires a **new explicit risk accept** (not covered by lab LAN/VPN accept)
+- TLS server verify is **ON by default** (`crt_bundle_attach: true`). Prefer a **lab CA** (`ca_cert`) for self-signed CSMS. `allow_insecure_tls: true` is **temporary PoC only**, DEFAULT **false**, and is **rejected** unless the CSMS host is **RFC1918** / **`.local`** / hostname that resolves to RFC1918 — never against public IP/DNS/cloud.
+
+## TLS / WSS (lab vs production)
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `crt_bundle_attach` | `true` | Verify CSMS with ESP-IDF Mozilla CA bundle (cloud / public CA) |
+| `ca_cert` | unset | PEM string of lab/private CA (preferred for self-signed) |
+| `allow_insecure_tls` | `false` | Skip server cert verify — **lab only**, RFC1918/`.local` gated |
+
+**CitrineOS:** stock OCPP 1.6 WSS is often **`wss://…:8092`**. A custom compose may use **8090** — match your CSMS config. Self-signed or bare-IP needs `ca_cert` **or** (lab) `allow_insecure_tls: true`.
+
+Example lab (Ola / RFC1918 IP, temporary insecure):
+
+```yaml
+ocpp_client:
+  enabled: true
+  csms_url: "wss://10.22.20.76:8090/YOUR_CP_ID"   # or :8092 for stock CitrineOS 1.6
+  charge_point_id: !secret ocpp_charge_point_id
+  authorization_key: !secret ocpp_authorization_key
+  allow_insecure_tls: true    # WARN-logged; rejected if host is not private lab
+  # Prefer instead:
+  # ca_cert: !secret ocpp_lab_ca_pem
+```
+
+Production / cloud: leave `allow_insecure_tls` false; use public CA bundle or pin `ca_cert`.
 
 ## Runtime HA surface (Max #3)
 
@@ -160,6 +186,8 @@ Local compile 2026-09-11 (also re-checked in CI «Firmware size» step):
 2. `git submodule update --init --recursive` (or rely on HA auto-fetch_deps)
 3. Flash `tesla-director-ocpp.yaml` (keep `tesla-director.yaml` clean)
 4. Prefer **lab CSMS on LAN/VPN**; leave remote-* switches OFF unless risk-accepted
+4b. TLS: prefer lab CA (`ca_cert`); `allow_insecure_tls` only on RFC1918/`.local` PoC (never production/cloud)
+4c. CitrineOS 1.6 often listens on **8092** (not 8090) — confirm your websocketServers port
 5. Confirm BootNotification / Heartbeat; MeterValues move with TWC telemetry
 6. From CSMS, SetChargingProfile — global/connector max never above hard cap
 7. Disconnect CSMS — fail-safe amps; or press «återställ till fail-safe»

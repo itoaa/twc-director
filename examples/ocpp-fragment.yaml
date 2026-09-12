@@ -10,6 +10,10 @@ ocpp_client:
   charge_point_id: !secret ocpp_charge_point_id
   authorization_key: !secret ocpp_authorization_key
   fail_safe_amps: 6                        # applied on CSMS disconnect / RemoteStop/Reset; ≤ hard cap
+  # TLS (CISO): verify by default. Prefer lab CA for self-signed.
+  # allow_insecure_tls: true               # lab PoC only; RFC1918 / .local hosts only
+  # ca_cert: !secret ocpp_lab_ca_pem
+  # crt_bundle_attach: true                # default
 
   # Status
   connected:

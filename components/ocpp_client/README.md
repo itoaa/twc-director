@@ -15,6 +15,20 @@ Native **OCPP 1.6J** Charge Point client for the TWC Director. Embeds
 | CSMS down | `fail_safe_amps` (≤ hard cap) |
 | Remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF**; UpdateFirmware **always rejected** |
 | Cloud | Lab = LAN/VPN CSMS; public cloud remotes need new risk accept |
+| TLS | Default `crt_bundle_attach: true`. Prefer `ca_cert` for lab CA. `allow_insecure_tls` DEFAULT false; only RFC1918/`.local` (CISO) |
+
+## TLS options
+
+```yaml
+ocpp_client:
+  # … enabled / csms_url / secrets …
+  crt_bundle_attach: true          # default — public CA verify
+  # ca_cert: !secret ocpp_lab_ca_pem
+  allow_insecure_tls: false        # lab PoC only; WARN + RFC1918/.local gate
+```
+
+Self-signed / bare IP on LAN: use `ca_cert` **or** temporary `allow_insecure_tls: true`.
+CitrineOS 1.6 WSS is often port **8092** (custom labs may use 8090).
 
 ## HA entities
 

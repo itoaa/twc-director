@@ -74,6 +74,9 @@ class OcppClientComponent : public Component {
   void set_fail_safe_amps(float amps) { this->fail_safe_amps_ = amps; }
   void set_charge_point_vendor(const std::string &v) { this->vendor_ = v; }
   void set_charge_point_model(const std::string &m) { this->model_ = m; }
+  void set_allow_insecure_tls(bool v) { this->allow_insecure_tls_ = v; }
+  void set_crt_bundle_attach(bool v) { this->crt_bundle_attach_ = v; }
+  void set_ca_cert(const std::string &pem) { this->ca_cert_ = pem; }
 
   void set_connected_sensor(binary_sensor::BinarySensor *s) { this->connected_sensor_ = s; }
   void set_connection_state_sensor(text_sensor::TextSensor *s) { this->connection_state_sensor_ = s; }
@@ -189,6 +192,9 @@ class OcppClientComponent : public Component {
   std::string vendor_{"itoaa"};
   std::string model_{"TWC-Director"};
   std::string resolved_url_;
+  bool allow_insecure_tls_{false};
+  bool crt_bundle_attach_{true};
+  std::string ca_cert_;
 
   binary_sensor::BinarySensor *connected_sensor_{nullptr};
   text_sensor::TextSensor *connection_state_sensor_{nullptr};

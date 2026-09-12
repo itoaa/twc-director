@@ -41,6 +41,9 @@ CONF_ALLOW_REMOTE_START = "allow_remote_start"
 CONF_ALLOW_REMOTE_STOP = "allow_remote_stop"
 CONF_ALLOW_RESET = "allow_reset"
 CONF_ALLOW_UNLOCK = "allow_unlock"
+CONF_ALLOW_INSECURE_TLS = "allow_insecure_tls"
+CONF_CA_CERT = "ca_cert"
+CONF_CRT_BUNDLE_ATTACH = "crt_bundle_attach"
 
 ocpp_ns = cg.esphome_ns.namespace("ocpp_client")
 OcppClientComponent = ocpp_ns.class_("OcppClientComponent", cg.Component)
@@ -246,6 +249,10 @@ CONFIG_SCHEMA = cv.All(
                 entity_category=ENTITY_CATEGORY_CONFIG,
                 default_restore_mode="ALWAYS_OFF",
             ),
+            # TLS: default verify via crt_bundle. allow_insecure_tls = lab-only (RFC1918/.local).
+            cv.Optional(CONF_ALLOW_INSECURE_TLS, default=False): cv.boolean,
+            cv.Optional(CONF_CRT_BUNDLE_ATTACH, default=True): cv.boolean,
+            cv.Optional(CONF_CA_CERT): cv.string,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     _validate_fail_safe,
@@ -269,6 +276,11 @@ async def to_code(config):
         cg.add(var.set_charge_point_id(config[CONF_CHARGE_POINT_ID]))
     if CONF_AUTHORIZATION_KEY in config:
         cg.add(var.set_authorization_key(config[CONF_AUTHORIZATION_KEY]))
+
+    cg.add(var.set_allow_insecure_tls(config[CONF_ALLOW_INSECURE_TLS]))
+    cg.add(var.set_crt_bundle_attach(config[CONF_CRT_BUNDLE_ATTACH]))
+    if CONF_CA_CERT in config:
+        cg.add(var.set_ca_cert(config[CONF_CA_CERT]))
 
     if CONF_CONNECTED in config:
         sens = await binary_sensor.new_binary_sensor(config[CONF_CONNECTED])
@@ -313,13 +325,27 @@ async def to_code(config):
     if config[CONF_ENABLED]:
         if not CORE.is_esp32:
             raise cv.Invalid("ocpp_client enabled:true requires ESP32 with ESP-IDF framework")
-        from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
+        from esphome.components.esp32 import (
+            add_idf_component,
+            add_idf_sdkconfig_option,
+            include_builtin_idf_component,
+        )
 
         vendor = Path(__file__).parent / "vendor"
         add_idf_component(name="MicroOcpp", path=str(vendor / "MicroOcpp"))
         add_idf_component(name="ocpp_mocpp_bridge", path=str(vendor / "ocpp_mocpp_bridge"))
         add_idf_component(name="espressif/esp_websocket_client", ref="1.4.0")
         include_builtin_idf_component("spiffs")
+        # Default verify path needs CA bundle (already typical on ESPHome; force on).
+        add_idf_sdkconfig_option("CONFIG_MBEDTLS_CERTIFICATE_BUNDLE", True)
+        # Skip-verify only compiles in when YAML asks; runtime still RFC1918/.local-gated.
+        if config.get(CONF_ALLOW_INSECURE_TLS):
+            add_idf_sdkconfig_option("CONFIG_ESP_TLS_INSECURE", True)
+            add_idf_sdkconfig_option("CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY", True)
+            _LOGGER.warning(
+                "ocpp_client.allow_insecure_tls: true — firmware will allow TLS verify "
+                "skip only for RFC1918 / .local lab CSMS hosts (CISO)."
+            )
         cg.add_define("USE_MICROOCPP")
         cg.add_build_flag("-DMO_PLATFORM=MO_PLATFORM_ESPIDF")
         cg.add_build_flag("-DMO_ENABLE_CONNECTOR_LOCK=0")
