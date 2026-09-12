@@ -164,6 +164,24 @@ Local compile 2026-09-11 (also re-checked in CI «Firmware size» step):
 6. From CSMS, SetChargingProfile — global/connector max never above hard cap
 7. Disconnect CSMS — fail-safe amps; or press «återställ till fail-safe»
 
+
+## Connection log sequence (Enable ON)
+
+When Ola flips **OCPP Enable** ON (or cold boot with enable already on), look for this order in the
+device log (`ocpp_client` / `ocpp_bridge` / `ocpp_ws`). Auth key and URL userinfo are **never** logged.
+
+1. `OCPP enable path start (HA enable ON|cold setup|…)` — `url_len`, `cp_id_len`, `auth_key_set`
+2. `enable/resolve-input:` / `resolved-wss:` — redacted `host` / `port` / `path`
+3. HA `connection_state` → **`connecting`** (not stuck on `starting`; init is deferred to `loop`)
+4. `Calling twc_ocpp_mocpp_start` → bridge `before g_ws->begin` → `ws-begin-enter` / `esp_websocket_client_start`
+5. `after g_ws->begin: OK` → `before mocpp_initialize` → `after mocpp_initialize`
+6. `MicroOCPP bridge initialized` / `MicroOCPP started`
+7. Either `WEBSOCKET_EVENT_CONNECTED` + `CSMS WebSocket connected` (`connection_state=connected`),
+   or after **45s** `error:connect-timeout` + fail-safe + stop (toggle Enable OFF/ON to retry)
+
+If steps 4–6 never appear while UI sat on `starting`, you were on a build before deferred init;
+reflash this branch tip.
+
 ## Related
 
 - Safety notes: [SECURITY.md](SECURITY.md)

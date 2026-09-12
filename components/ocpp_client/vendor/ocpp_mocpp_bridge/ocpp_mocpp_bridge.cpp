@@ -145,18 +145,39 @@ extern "C" bool twc_ocpp_mocpp_start(const twc_ocpp_mocpp_config_t *cfg) {
   g_ws = new twc_ocpp::EspIdfWsConnection();
   const char *user = cfg->charge_point_id ? cfg->charge_point_id : "";
   const char *pass = cfg->authorization_key ? cfg->authorization_key : "";
+  // Redact userinfo for logs — never print auth key / password.
+  {
+    std::string url = cfg->wss_url ? cfg->wss_url : "";
+    std::string rest = url;
+    if (rest.rfind("wss://", 0) == 0) {
+      rest = rest.substr(6);
+      size_t slash = rest.find('/');
+      size_t at = rest.find('@');
+      if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
+        rest = rest.substr(at + 1);
+      }
+      ESP_LOGI(TAG, "before g_ws->begin: url_len=%u redacted=wss://%s user_set=%d auth_key_set=%d",
+               static_cast<unsigned>(url.size()), rest.c_str(), user[0] ? 1 : 0, pass[0] ? 1 : 0);
+    } else {
+      ESP_LOGE(TAG, "before g_ws->begin: non-wss url_len=%u", static_cast<unsigned>(url.size()));
+    }
+  }
   if (!g_ws->begin(cfg->wss_url, user, pass)) {
+    ESP_LOGE(TAG, "after g_ws->begin: FAILED");
     delete g_ws;
     g_ws = nullptr;
     return false;
   }
+  ESP_LOGI(TAG, "after g_ws->begin: OK");
 
   const char *model = cfg->model ? cfg->model : "TWC-Director";
   const char *vendor = cfg->vendor ? cfg->vendor : "itoaa";
   ChargerCredentials creds(model, vendor);
   auto fs = MicroOcpp::makeDefaultFilesystemAdapter(MicroOcpp::FilesystemOpt::Deactivate);
   // OCPP 1.6J only — OCPP 2.0.1 not enabled (MO_ENABLE_V201 remains 0).
+  ESP_LOGI(TAG, "before mocpp_initialize (1.6J)");
   mocpp_initialize(*g_ws, creds, fs, false, MicroOcpp::ProtocolVersion(1, 6));
+  ESP_LOGI(TAG, "after mocpp_initialize");
 
   // Global / CP-level (connectorId 0) smart charging → site hard-capped global max.
   setSmartChargingCurrentOutput([](float amps) {

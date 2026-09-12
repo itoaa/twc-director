@@ -26,9 +26,52 @@ struct FlagBlob {
 };
 struct PrefString {
   uint8_t len;
-  char data[160];
+  char data[192];  // URL can exceed 160 (Ola live ~161); id/key use same blob
 };
 }  // namespace
+
+std::string OcppClientComponent::redact_wss_url_(const std::string &url) {
+  // Strip userinfo (never log auth). Keep scheme + host[:port] + path.
+  constexpr const char *kPref = "wss://";
+  if (url.rfind(kPref, 0) != 0) {
+    return "<non-wss>";
+  }
+  std::string rest = url.substr(strlen(kPref));
+  size_t slash = rest.find('/');
+  size_t at = rest.find('@');
+  if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
+    rest = rest.substr(at + 1);
+  }
+  return std::string(kPref) + rest;
+}
+
+void OcppClientComponent::log_wss_target_(const char *phase, const std::string &url) {
+  const std::string redacted = redact_wss_url_(url);
+  constexpr const char *kPref = "wss://";
+  std::string host = "?";
+  std::string path = "/";
+  unsigned port = 443;
+  if (redacted.rfind(kPref, 0) == 0) {
+    std::string rest = redacted.substr(strlen(kPref));
+    size_t slash = rest.find('/');
+    std::string hostport = (slash == std::string::npos) ? rest : rest.substr(0, slash);
+    path = (slash == std::string::npos) ? "/" : rest.substr(slash);
+    // host:port (skip naive IPv6 for log; still safe — no secrets)
+    size_t colon = hostport.rfind(':');
+    if (colon != std::string::npos && hostport.find(']') == std::string::npos) {
+      host = hostport.substr(0, colon);
+      port = static_cast<unsigned>(atoi(hostport.c_str() + colon + 1));
+      if (port == 0) {
+        port = 443;
+      }
+    } else {
+      host = hostport;
+    }
+  }
+  ESP_LOGI(TAG, "%s: url_len=%u redacted=%s host=%s port=%u path=%s", phase,
+           static_cast<unsigned>(url.size()), redacted.c_str(), host.c_str(), port, path.c_str());
+}
+
 
 #ifdef USE_MICROOCPP
 static void smart_current_thunk(float amps, void *user) {
@@ -324,6 +367,8 @@ void OcppClientComponent::push_telemetry_() {
 }
 
 void OcppClientComponent::stop_microocpp_(const char *reason) {
+  this->init_pending_ = false;
+  this->connect_started_ms_ = 0;
 #ifdef USE_MICROOCPP
   if (!this->mocpp_started_) {
     return;
@@ -333,20 +378,38 @@ void OcppClientComponent::stop_microocpp_(const char *reason) {
   this->mocpp_started_ = false;
   this->was_connected_ = false;
   this->publish_state_(false, "stopped");
+#else
+  (void) reason;
 #endif
+}
+
+void OcppClientComponent::request_microocpp_start_(const char *reason) {
+  ESP_LOGI(TAG, "OCPP enable path start (%s) url_len=%u cp_id_len=%u auth_key_set=%d",
+           reason != nullptr ? reason : "?", static_cast<unsigned>(this->csms_url_.size()),
+           static_cast<unsigned>(this->charge_point_id_.size()),
+           this->authorization_key_.empty() ? 0 : 1);
+  this->log_wss_target_("enable/resolve-input", this->csms_url_);
+  // Publish connecting *before* heavy WS/MO work so HA is not stuck on "starting".
+  // Actual mocpp_start runs on the next loop() tick (deferred) so this state can flush.
+  this->init_pending_ = true;
+  this->connect_started_ms_ = 0;
+  this->publish_state_(false, "connecting");
 }
 
 void OcppClientComponent::maybe_init_microocpp_() {
 #ifdef USE_MICROOCPP
   if (this->mocpp_started_) {
+    this->init_pending_ = false;
     return;
   }
   if (!this->runtime_enabled_()) {
+    this->init_pending_ = false;
     return;
   }
 
   if (this->csms_url_.rfind("wss://", 0) != 0) {
     ESP_LOGE(TAG, "csms_url must be wss:// — not starting");
+    this->init_pending_ = false;
     this->publish_state_(false, "error:not-wss");
     return;
   }
@@ -362,6 +425,8 @@ void OcppClientComponent::maybe_init_microocpp_() {
       this->resolved_url_ += this->charge_point_id_;
     }
   }
+
+  this->log_wss_target_("resolved-wss", this->resolved_url_);
 
   unsigned num_connectors = 1;
   if (this->director_ != nullptr) {
@@ -392,18 +457,29 @@ void OcppClientComponent::maybe_init_microocpp_() {
   cfg.on_remote_event = remote_event_thunk;
   cfg.user = this;
 
+  ESP_LOGI(TAG, "Calling twc_ocpp_mocpp_start (connectors=%u) — may block on WS/TLS begin",
+           num_connectors);
+  const uint32_t t0 = millis();
   if (!twc_ocpp_mocpp_start(&cfg)) {
+    ESP_LOGE(TAG, "twc_ocpp_mocpp_start failed after %ums", static_cast<unsigned>(millis() - t0));
+    this->init_pending_ = false;
     this->publish_state_(false, "error:ws-init");
     this->apply_fail_safe_("mocpp/ws init failed");
     return;
   }
+  ESP_LOGI(TAG, "twc_ocpp_mocpp_start returned ok in %ums", static_cast<unsigned>(millis() - t0));
 
   this->mocpp_started_ = true;
+  this->init_pending_ = false;
+  this->connect_started_ms_ = millis();
+  // Stay on "connecting" until poll sees WS connected (or timeout).
   this->publish_state_(false, "connecting");
   this->push_telemetry_();
-  ESP_LOGI(TAG, "MicroOCPP bridge initialized (connectors=%u)", num_connectors);
+  ESP_LOGI(TAG, "MicroOCPP bridge initialized (connectors=%u); waiting for WS connect (timeout=%ums)",
+           num_connectors, static_cast<unsigned>(CONNECT_TIMEOUT_MS));
 #else
   ESP_LOGE(TAG, "enabled but firmware built without USE_MICROOCPP");
+  this->init_pending_ = false;
   this->publish_state_(false, "error:no-microocpp");
   this->apply_fail_safe_("MicroOCPP not linked");
 #endif
@@ -414,13 +490,37 @@ void OcppClientComponent::poll_connection_() {
   bool connected = twc_ocpp_mocpp_is_connected();
   if (connected != this->was_connected_) {
     if (connected) {
+      this->connect_started_ms_ = 0;
       this->publish_state_(true, "connected");
+      ESP_LOGI(TAG, "CSMS WebSocket connected");
     } else {
       this->publish_state_(false, "disconnected");
       this->apply_fail_safe_("CSMS disconnected");
     }
     this->was_connected_ = connected;
   }
+#endif
+}
+
+void OcppClientComponent::check_connect_timeout_() {
+#ifdef USE_MICROOCPP
+  if (!this->mocpp_started_ || this->was_connected_) {
+    return;
+  }
+  if (this->connect_started_ms_ == 0) {
+    return;
+  }
+  const uint32_t elapsed = millis() - this->connect_started_ms_;
+  if (elapsed < CONNECT_TIMEOUT_MS) {
+    return;
+  }
+  ESP_LOGE(TAG, "CSMS connect timeout after %ums — fail-safe and stop (no auto-retry)",
+           static_cast<unsigned>(elapsed));
+  this->publish_state_(false, "error:connect-timeout");
+  this->apply_fail_safe_("CSMS connect timeout");
+  this->stop_microocpp_("connect timeout");
+  // Leave enable switch ON so Ola can see the error; toggle OFF/ON to retry.
+  this->publish_state_(false, "error:connect-timeout");
 #endif
 }
 
@@ -432,8 +532,8 @@ void OcppClientComponent::handle_enable_write_(bool state) {
     this->stop_microocpp_("HA enable off");
     this->publish_state_(false, "disabled");
   } else {
-    this->publish_state_(false, "starting");
-    this->maybe_init_microocpp_();
+    // Same logging + deferred init path as cold setup (do not block HA write_state).
+    this->request_microocpp_start_("HA enable ON");
   }
 }
 
@@ -488,7 +588,7 @@ void OcppClientComponent::handle_param_write_(OcppParamText::Kind kind, const st
   this->save_runtime_prefs_();
   if (this->runtime_enabled_()) {
     this->stop_microocpp_("CSMS params changed");
-    this->maybe_init_microocpp_();
+    this->request_microocpp_start_("CSMS params changed");
   }
 }
 
@@ -544,19 +644,23 @@ void OcppClientComponent::setup() {
     return;
   }
 
-  this->publish_state_(false, "starting");
-  this->maybe_init_microocpp_();
+  this->request_microocpp_start_("cold setup");
 }
 
 void OcppClientComponent::loop() {
   if (!this->runtime_enabled_()) {
     return;
   }
+  // Deferred init: run heavy WS/MO start outside switch/setup so UI can leave "starting".
+  if (this->init_pending_ && !this->mocpp_started_) {
+    this->maybe_init_microocpp_();
+  }
 #ifdef USE_MICROOCPP
   if (this->mocpp_started_) {
     this->push_telemetry_();
     twc_ocpp_mocpp_loop();
     this->poll_connection_();
+    this->check_connect_timeout_();
   }
 #endif
 }

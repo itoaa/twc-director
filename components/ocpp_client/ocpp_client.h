@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "esphome/core/component.h"
@@ -151,21 +152,29 @@ class OcppClientComponent : public Component {
   float apply_csms_global_max_(float amps);
   void publish_state_(bool connected, const char *state);
   void apply_fail_safe_(const char *reason);
+  void request_microocpp_start_(const char *reason);
   void maybe_init_microocpp_();
   void stop_microocpp_(const char *reason);
   void poll_connection_();
+  void check_connect_timeout_();
   void push_telemetry_();
   void push_feature_flags_();
   void load_runtime_prefs_();
   void save_runtime_prefs_();
   bool runtime_enabled_() const;
   std::string effective_url_() const;
+  static std::string redact_wss_url_(const std::string &url);
+  static void log_wss_target_(const char *phase, const std::string &url);
 
   twc_director::TWCDirectorComponent *director_{nullptr};
   bool enabled_default_{false};
   bool runtime_enabled_pref_{false};
   bool mocpp_started_{false};
+  bool init_pending_{false};
   bool was_connected_{false};
+  uint32_t connect_started_ms_{0};
+  // Fixed connect timeout: if WS never becomes connected, fail-safe + stop.
+  static constexpr uint32_t CONNECT_TIMEOUT_MS = 45000;
   float fail_safe_amps_{6.0f};
   float last_applied_amps_{0.0f};
 
@@ -198,7 +207,7 @@ class OcppClientComponent : public Component {
   ESPPreferenceObject pref_enabled_{};
   ESPPreferenceObject pref_flags_{};
   // Fixed-size NVS blobs for runtime URL/id/key overrides (never logged for key).
-  static constexpr size_t PREF_URL_LEN = 160;
+  static constexpr size_t PREF_URL_LEN = 191;
   static constexpr size_t PREF_ID_LEN = 48;
   static constexpr size_t PREF_KEY_LEN = 64;
   ESPPreferenceObject pref_url_{};

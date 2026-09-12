@@ -40,3 +40,11 @@ git submodule update --init --recursive
 ```
 
 Details: [`vendor/README.md`](vendor/README.md), [`docs/OCPP.md`](../../docs/OCPP.md).
+
+## Enable ON — what to watch
+
+`connection_state` goes to **`connecting`** immediately (init runs on the next loop tick).
+Serial tags `ocpp_client` / `ocpp_bridge` / `ocpp_ws` print host/port/path **without** secrets.
+If the socket never connects, after ~45s you get `error:connect-timeout` + fail-safe.
+Full sequence: [`docs/OCPP.md`](../../docs/OCPP.md#connection-log-sequence-enable-on).
+
