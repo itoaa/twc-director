@@ -12,21 +12,31 @@ concurrency:
 
 jobs:
   compile:
-    name: Compile ESPHome ${{ matrix.esphome }}
+    name: Compile ${{ matrix.yaml }} / ESPHome ${{ matrix.esphome }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        esphome:
-          - "2026.7.3"
-          - "latest"
+        include:
+          - yaml: tesla-director.yaml
+            esphome: "2026.7.3"
+            ocpp: false
+          - yaml: tesla-director.yaml
+            esphome: "latest"
+            ocpp: false
+          # Prove ocpp_client builds with enabled:true + MicroOCPP (submodules + fetch_deps).
+          - yaml: tesla-director-ocpp.yaml
+            esphome: "2026.7.3"
+            ocpp: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Write CI secrets
         run: |
-          cat > secrets.yaml <<'EOF'
+          cat > secrets.yaml <<'SECRETS'
           wifi_ssid: "ci-ssid"
           wifi_password: "ci-password-123456"
           wifi_hotspot_password: "ci-hotspot-123456"
@@ -34,13 +44,46 @@ jobs:
           tesla_director_ota_password: "ci-ota-password"
           web_username: "ci"
           web_password: "ci-web-password"
-          EOF
+          ocpp_csms_url: "wss://ocpp.example.invalid/ocpp/CP001"
+          ocpp_charge_point_id: "CP001"
+          ocpp_authorization_key: "ci-ocpp-key"
+          SECRETS
           # Strip accidental leading indentation from the heredoc above
           sed -i 's/^[[:space:]]*//' secrets.yaml
           cat secrets.yaml
 
+      - name: Ensure OCPP vendor deps (patch CMake / safety if submodules empty)
+        if: matrix.ocpp
+        run: ./components/ocpp_client/scripts/fetch_deps.sh
+
       - name: Build firmware
+        id: build
         uses: esphome/build-action@v8.0.0
         with:
-          yaml-file: tesla-director.yaml
+          yaml-file: ${{ matrix.yaml }}
           version: ${{ matrix.esphome }}
+
+      - name: Firmware size (OCPP)
+        if: matrix.ocpp
+        run: |
+          set -euo pipefail
+          echo "::group::Firmware size / RAM hints"
+          echo "build-action outputs:"
+          echo '${{ toJSON(steps.build.outputs) }}'
+          # Common locations from esphome/build-action / PlatformIO
+          find . -type f \( -name '*.bin' -o -name 'firmware.map' -o -name '*size*.txt' \) \
+            ! -path './.git/*' 2>/dev/null | head -80 || true
+          echo "---- bin sizes ----"
+          find . -type f -name '*.bin' ! -path './.git/*' -printf '%s %p\n' 2>/dev/null | sort -nr | head -20 || true
+          echo "---- ESPHome / PIO memory lines (if present in outputs dir) ----"
+          if [ -d .esphome ]; then
+            rg -n "RAM:|Flash:|Used|DRAM|IRAM|memory" .esphome -g '*.txt' -g '*.log' 2>/dev/null | head -40 || true
+          fi
+          if [ -d .pio ]; then
+            rg -n "RAM:|Flash:|Used|DRAM|IRAM" .pio -g '*.txt' -g '*.map' 2>/dev/null | head -40 || true
+          fi
+          # Also scan GitHub Action workspace output from build-action
+          if [ -d "${{ runner.temp }}" ]; then
+            find "${{ runner.temp }}" -name '*.bin' -printf '%s %p\n' 2>/dev/null | sort -nr | head -10 || true
+          fi
+          echo "::endgroup::"

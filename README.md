@@ -81,7 +81,21 @@ external_components:
       # ref: main   # valfritt: pinna branch/tag
 ```
 
-Kopiera och anpassa `tesla-director.yaml`.
+**OCPP (branch `feature/ocpp-1.6`):**
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/itoaa/twc-director.git
+      ref: feature/ocpp-1.6
+    components: [twc_director, ocpp_client]
+    refresh: 0s   # tip: tvinga omklon efter branch-push
+```
+
+Ingen manuell `fetch_deps.sh` behövs i HA — saknade vendor-submoduler hämtas automatiskt vid `ocpp_client.enabled: true`.
+
+Kopiera och anpassa `tesla-director.yaml` (eller `tesla-director-ocpp.yaml` / `examples/ocpp-fragment.yaml` för OCPP).
 
 ### ESPHome 2026.7.x
 
@@ -235,3 +249,33 @@ Egna ändringar i denna fork: se git-historik.
 - [Wired-Square/esphome-twc-director](https://github.com/Wired-Square/esphome-twc-director)
 - Tesla Motors Club / protokoll-reverse-engineering-communityn
 - ESPHome-teamet
+
+## OCPP 1.6J experiment
+
+On branch `feature/ocpp-1.6` we explore **native** OCPP 1.6J (MicroOCPP) so the
+director can speak to a CSMS over **wss**, report MeterValues/Status from TWC
+telemetry, and steer **global + per-connector** amp wishes (hard caps win).
+Runtime HA entities can set CSMS URL/id/key and enable/disable without reflash.
+Lab RemoteStart/Stop/Reset/Unlock are **DEFAULT OFF**; UpdateFirmware always rejected.
+
+### TLS (CISO)
+
+- Default: verify with `crt_bundle_attach` (or pin `ca_cert` for a lab CA).
+- `allow_insecure_tls: true` is **temporary lab PoC only**, DEFAULT false, and only works for **RFC1918** / **`.local`** CSMS hosts — never public/cloud.
+- CitrineOS 1.6 WSS is often port **8092** (some labs use 8090).
+
+### Out of scope (enforced)
+
+- OCPP 2.0.1 (not enabled)
+- Remote firmware path
+- Cleartext `ws://` / raising amps above hard caps / committing secrets
+- Skipping TLS verify against public IP/DNS/cloud
+
+- Design + CISO: [`docs/OCPP.md`](docs/OCPP.md), [`docs/SECURITY.md`](docs/SECURITY.md)
+- Component: [`components/ocpp_client/`](components/ocpp_client/) (default `enabled: false`)
+- Example fragment: [`examples/ocpp-fragment.yaml`](examples/ocpp-fragment.yaml)
+- Optional OCPP YAML (CI-verified `enabled: true`): [`tesla-director-ocpp.yaml`](tesla-director-ocpp.yaml)
+
+`main` / default [`tesla-director.yaml`](tesla-director.yaml) stays without OCPP.
+Vendor libs are git submodules (auto-fetched in HA if missing). Local: `git submodule update --init --recursive` or `./components/ocpp_client/scripts/fetch_deps.sh` + `ocpp_*` secrets.
+

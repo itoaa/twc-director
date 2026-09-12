@@ -1,0 +1,6 @@
+[submodule "components/ocpp_client/vendor/MicroOcpp"]
+	path = components/ocpp_client/vendor/MicroOcpp
+	url = https://github.com/matth-x/MicroOcpp.git
+[submodule "components/ocpp_client/vendor/ArduinoJson"]
+	path = components/ocpp_client/vendor/ArduinoJson
+	url = https://github.com/bblanchon/ArduinoJson.git

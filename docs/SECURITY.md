@@ -47,3 +47,24 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 
 Prefer private disclosure for security issues that could cause unsafe charge
 limits or remote contactor abuse on shared networks.
+
+## OCPP experiment (`feature/ocpp-1.6`)
+
+Native OCPP on the ESP moves TLS, WebSocket, and CSMS trust onto the same MCU
+that owns RS-485. Treat CSMS as remote admin.
+
+| Control | Requirement |
+|---------|-------------|
+| Transport | **`wss://` default**. `ws://` only if `allow_cleartext_ws` DEFAULT **OFF** **and** RFC1918 / `.local` / hostname→RFC1918 — **never** public cleartext; WARN every accept; **remove flag after wss handoff** (lab-only, not prod-config) |
+| TLS verify | **Default ON** (`crt_bundle_attach`). Prefer lab CA (`ca_cert` YAML and/or HA `ca_cert_text` → NVS). Runtime CA is used **ahead of** bundle and **ahead of** `allow_insecure_tls` (no skip-verify when a CA is set). HA state never contains raw PEM (`set (N bytes)`). `allow_insecure_tls` DEFAULT **OFF**; if ON and no CA, **only** RFC1918 / `.local` / hostname→RFC1918 — **never** public IP/DNS/cloud; WARN every accept. No new skip-verify path; no mTLS/client cert in this change. |
+| Amp profiles | Global + per-connector wishes; **hard caps / per-EVSE limits win** |
+| CSMS down | `fail_safe_amps` (≤ hard cap), never full open |
+| Enable | YAML default **off**; HA `enable_switch` can stop → fail-safe + disconnect |
+| Secrets | `ocpp_*` via `!secret` and/or NVS HA overrides — **never commit**; rotate; theft of ESP = credential risk. CA PEM in NVS is overwritten/zeroed on update or HA clear; never logged |
+| Lab remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF** (independent switches); AUDIT log; **forced OFF while cleartext `ws://`** |
+| Firmware | **UpdateFirmware always rejected** until signed image + rollback |
+| Cloud CSMS | Lab accept is **LAN/VPN only**. Enabling remotes (or trusting) a **public cloud CSMS** needs a **new risk accept**. Production/cloud **must** verify TLS (bundle or CA) |
+| OCPP 2.0.1 | Not enabled |
+
+See [OCPP.md](OCPP.md) and [`components/ocpp_client/README.md`](../components/ocpp_client/README.md).
+Lab PoC only until OTA signing and cert lifecycle are proven.

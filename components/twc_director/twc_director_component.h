@@ -219,6 +219,54 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   void handle_current_number_control(uint16_t address, float value,
                                       TWCDirectorCurrentNumber::CurrentType type);
 
+  // ---- External amp budget API (used by ocpp_client) ----
+  // Compile-time / YAML hard safety cap — CSMS must never raise above this.
+  float hard_cap_global_max_a() const { return this->global_max_current_a_; }
+
+  // Apply an external wish (OCPP profile / ChangeConfiguration). Clamps to
+  // [1 A, hard_cap] and updates the C core + optional global_max_current_control.
+  // Returns the clamped value actually applied.
+  float apply_external_global_max_a(float amps);
+
+  // ---- Telemetry / OCPP connector mapping (read-only) ----
+  // OCPP connectorId N maps to EVSE slot index N-1 (connector 1 → first slot).
+  static constexpr std::size_t OCPP_MAX_SLOTS = 4;
+
+  struct SiteTelemetry {
+    float max_phase_current_a{0.0f};
+    float voltage_v{0.0f};           // first non-zero phase voltage seen
+    float session_energy_kwh{0.0f};  // sum across online/bound slots
+    float total_energy_kwh{0.0f};
+    float approx_power_w{0.0f};
+    bool any_charging{false};
+    bool any_vehicle_connected{false};
+    bool any_online{false};
+    int online_count{0};
+    int bound_count{0};
+  };
+
+  struct SlotTelemetry {
+    bool valid{false};
+    uint16_t address{0};
+    bool online{false};
+    bool vehicle_connected{false};
+    bool contactor_closed{false};
+    bool charging{false};
+    float current_a[3]{0.0f, 0.0f, 0.0f};
+    float voltage_v[3]{0.0f, 0.0f, 0.0f};
+    float session_energy_kwh{0.0f};
+    float total_energy_kwh{0.0f};
+    float session_amps{0.0f};
+  };
+
+  SiteTelemetry get_site_telemetry() const;
+  SlotTelemetry get_slot_telemetry(std::size_t slot_index) const;
+  std::size_t slot_count() const { return this->evse_entries_.size(); }
+
+  // Per-connector (OCPP connectorId 1..N → slot N-1) session/max wish.
+  // Still clamped by per-EVSE limit and global hard cap budget. Returns applied A.
+  float apply_external_connector_max_a(unsigned connector_id, float amps);
+
   // =========================================================================
   // Timing Constants
   // =========================================================================
