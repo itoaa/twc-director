@@ -6,12 +6,13 @@ ocpp_client:
   id: twc_ocpp
   enabled: false                 # compile default; HA enable_switch can start later if linked
   twc_director_id: twc_component
-  csms_url: !secret ocpp_csms_url          # must be wss://
+  csms_url: !secret ocpp_csms_url          # wss:// preferred; ws:// needs allow_cleartext_ws
   charge_point_id: !secret ocpp_charge_point_id
   authorization_key: !secret ocpp_authorization_key
   fail_safe_amps: 6                        # applied on CSMS disconnect / RemoteStop/Reset; ≤ hard cap
   # TLS (CISO): verify by default. Prefer lab CA for self-signed.
   # allow_insecure_tls: true               # lab PoC only; RFC1918 / .local hosts only
+  # allow_cleartext_ws: true               # lab LAN only; ws://10.x… ; remove after wss handoff
   # ca_cert: !secret ocpp_lab_ca_pem
   # crt_bundle_attach: true                # default
 

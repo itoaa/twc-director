@@ -32,27 +32,57 @@ struct PrefString {
 
 std::string OcppClientComponent::redact_wss_url_(const std::string &url) {
   // Strip userinfo (never log auth). Keep scheme + host[:port] + path.
-  constexpr const char *kPref = "wss://";
-  if (url.rfind(kPref, 0) != 0) {
-    return "<non-wss>";
+  const char *scheme = nullptr;
+  size_t scheme_len = 0;
+  if (url.rfind("wss://", 0) == 0) {
+    scheme = "wss://";
+    scheme_len = 6;
+  } else if (url.rfind("ws://", 0) == 0) {
+    scheme = "ws://";
+    scheme_len = 5;
+  } else {
+    return "<non-ws>";
   }
-  std::string rest = url.substr(strlen(kPref));
+  std::string rest = url.substr(scheme_len);
   size_t slash = rest.find('/');
   size_t at = rest.find('@');
   if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
     rest = rest.substr(at + 1);
   }
-  return std::string(kPref) + rest;
+  return std::string(scheme) + rest;
+}
+
+bool OcppClientComponent::is_cleartext_ws_url_() const {
+  return this->csms_url_.rfind("ws://", 0) == 0;
+}
+
+bool OcppClientComponent::url_scheme_allowed_(const std::string &url) const {
+  if (url.rfind("wss://", 0) == 0) {
+    return true;
+  }
+  if (url.rfind("ws://", 0) == 0) {
+    return this->allow_cleartext_ws_;
+  }
+  return false;
 }
 
 void OcppClientComponent::log_wss_target_(const char *phase, const std::string &url) {
   const std::string redacted = redact_wss_url_(url);
-  constexpr const char *kPref = "wss://";
   std::string host = "?";
   std::string path = "/";
   unsigned port = 443;
-  if (redacted.rfind(kPref, 0) == 0) {
-    std::string rest = redacted.substr(strlen(kPref));
+  bool cleartext = false;
+  size_t scheme_len = 0;
+  if (redacted.rfind("wss://", 0) == 0) {
+    scheme_len = 6;
+    port = 443;
+  } else if (redacted.rfind("ws://", 0) == 0) {
+    scheme_len = 5;
+    port = 80;
+    cleartext = true;
+  }
+  if (scheme_len > 0) {
+    std::string rest = redacted.substr(scheme_len);
     size_t slash = rest.find('/');
     std::string hostport = (slash == std::string::npos) ? rest : rest.substr(0, slash);
     path = (slash == std::string::npos) ? "/" : rest.substr(slash);
@@ -60,16 +90,17 @@ void OcppClientComponent::log_wss_target_(const char *phase, const std::string &
     size_t colon = hostport.rfind(':');
     if (colon != std::string::npos && hostport.find(']') == std::string::npos) {
       host = hostport.substr(0, colon);
-      port = static_cast<unsigned>(atoi(hostport.c_str() + colon + 1));
-      if (port == 0) {
-        port = 443;
+      unsigned parsed = static_cast<unsigned>(atoi(hostport.c_str() + colon + 1));
+      if (parsed != 0) {
+        port = parsed;
       }
     } else {
       host = hostport;
     }
   }
-  ESP_LOGI(TAG, "%s: url_len=%u redacted=%s host=%s port=%u path=%s", phase,
-           static_cast<unsigned>(url.size()), redacted.c_str(), host.c_str(), port, path.c_str());
+  ESP_LOGI(TAG, "%s: url_len=%u redacted=%s host=%s port=%u path=%s cleartext=%d", phase,
+           static_cast<unsigned>(url.size()), redacted.c_str(), host.c_str(), port, path.c_str(),
+           cleartext ? 1 : 0);
 }
 
 
@@ -109,10 +140,11 @@ void OcppEnableSwitch::write_state(bool state) {
 }
 
 void OcppFeatureSwitch::write_state(bool state) {
+  bool effective = state;
   if (this->parent_ != nullptr) {
-    this->parent_->handle_feature_write_(this->kind_, state);
+    effective = this->parent_->handle_feature_write_(this->kind_, state);
   }
-  this->publish_state(state);
+  this->publish_state(effective);
 }
 
 void OcppParamText::control(const std::string &value) {
@@ -305,10 +337,16 @@ void OcppClientComponent::push_feature_flags_() {
     return;
   }
   twc_ocpp_feature_flags_t flags{};
-  flags.allow_remote_start = this->allow_remote_start_;
-  flags.allow_remote_stop = this->allow_remote_stop_;
-  flags.allow_reset = this->allow_reset_;
-  flags.allow_unlock = this->allow_unlock_;
+  const bool cleartext = this->is_cleartext_ws_url_();
+  if (cleartext &&
+      (this->allow_remote_start_ || this->allow_remote_stop_ || this->allow_reset_ ||
+       this->allow_unlock_)) {
+    ESP_LOGW(TAG, "cleartext ws: Remote* not honored (forced OFF even if HA switches on)");
+  }
+  flags.allow_remote_start = cleartext ? false : this->allow_remote_start_;
+  flags.allow_remote_stop = cleartext ? false : this->allow_remote_stop_;
+  flags.allow_reset = cleartext ? false : this->allow_reset_;
+  flags.allow_unlock = cleartext ? false : this->allow_unlock_;
   twc_ocpp_mocpp_set_feature_flags(&flags);
 #endif
 }
@@ -407,11 +445,21 @@ void OcppClientComponent::maybe_init_microocpp_() {
     return;
   }
 
-  if (this->csms_url_.rfind("wss://", 0) != 0) {
-    ESP_LOGE(TAG, "csms_url must be wss:// — not starting");
+  if (!this->url_scheme_allowed_(this->csms_url_)) {
+    if (this->csms_url_.rfind("ws://", 0) == 0) {
+      ESP_LOGE(TAG, "csms_url is ws:// but allow_cleartext_ws is false — not starting");
+      this->publish_state_(false, "error:cleartext-disabled");
+    } else {
+      ESP_LOGE(TAG, "csms_url must be wss:// (or lab ws:// with allow_cleartext_ws) — not starting");
+      this->publish_state_(false, "error:not-wss");
+    }
     this->init_pending_ = false;
-    this->publish_state_(false, "error:not-wss");
     return;
+  }
+  if (this->is_cleartext_ws_url_()) {
+    ESP_LOGW(TAG,
+             "allow_cleartext_ws: accepting cleartext csms_url (host gate at WS begin; "
+             "Remote* forced OFF while ws://)");
   }
 
   this->resolved_url_ = this->csms_url_;
@@ -448,15 +496,20 @@ void OcppClientComponent::maybe_init_microocpp_() {
   cfg.model = this->model_.c_str();
   cfg.num_connectors = num_connectors;
   cfg.allow_insecure_tls = this->allow_insecure_tls_;
+  cfg.allow_cleartext_ws = this->allow_cleartext_ws_;
   cfg.crt_bundle_attach = this->crt_bundle_attach_;
   cfg.ca_cert_pem = this->ca_cert_.empty() ? nullptr : this->ca_cert_.c_str();
   if (this->allow_insecure_tls_) {
     ESP_LOGW(TAG, "allow_insecure_tls enabled in config (CISO: only RFC1918/.local lab hosts)");
   }
-  cfg.flags.allow_remote_start = this->allow_remote_start_;
-  cfg.flags.allow_remote_stop = this->allow_remote_stop_;
-  cfg.flags.allow_reset = this->allow_reset_;
-  cfg.flags.allow_unlock = this->allow_unlock_;
+  if (this->allow_cleartext_ws_) {
+    ESP_LOGW(TAG, "allow_cleartext_ws enabled in config (CISO: only RFC1918/.local lab hosts)");
+  }
+  const bool cleartext = this->is_cleartext_ws_url_();
+  cfg.flags.allow_remote_start = cleartext ? false : this->allow_remote_start_;
+  cfg.flags.allow_remote_stop = cleartext ? false : this->allow_remote_stop_;
+  cfg.flags.allow_reset = cleartext ? false : this->allow_reset_;
+  cfg.flags.allow_unlock = cleartext ? false : this->allow_unlock_;
   cfg.on_smart_current = smart_current_thunk;
   cfg.on_connector_current = connector_current_thunk;
   cfg.on_change_config = change_config_thunk;
@@ -469,7 +522,9 @@ void OcppClientComponent::maybe_init_microocpp_() {
   if (!twc_ocpp_mocpp_start(&cfg)) {
     ESP_LOGE(TAG, "twc_ocpp_mocpp_start failed after %ums", static_cast<unsigned>(millis() - t0));
     this->init_pending_ = false;
-    if (this->allow_insecure_tls_) {
+    if (this->is_cleartext_ws_url_()) {
+      this->publish_state_(false, "error:cleartext-rejected-or-ws");
+    } else if (this->allow_insecure_tls_) {
       this->publish_state_(false, "error:tls-insecure-rejected-or-ws");
     } else {
       this->publish_state_(false, "error:ws-init");
@@ -547,7 +602,14 @@ void OcppClientComponent::handle_enable_write_(bool state) {
   }
 }
 
-void OcppClientComponent::handle_feature_write_(OcppFeatureSwitch::Kind kind, bool state) {
+bool OcppClientComponent::handle_feature_write_(OcppFeatureSwitch::Kind kind, bool state) {
+  if (state && this->is_cleartext_ws_url_()) {
+    ESP_LOGW(TAG,
+             "cleartext ws: refusing Remote* ON (kind=%d) — keep flags OFF until wss handoff",
+             static_cast<int>(kind));
+    this->push_feature_flags_();
+    return false;
+  }
   switch (kind) {
     case OcppFeatureSwitch::REMOTE_START:
       this->allow_remote_start_ = state;
@@ -566,13 +628,18 @@ void OcppClientComponent::handle_feature_write_(OcppFeatureSwitch::Kind kind, bo
            static_cast<int>(kind), state ? 1 : 0);
   this->save_runtime_prefs_();
   this->push_feature_flags_();
+  return state;
 }
 
 void OcppClientComponent::handle_param_write_(OcppParamText::Kind kind, const std::string &value) {
   switch (kind) {
     case OcppParamText::CSMS_URL:
-      if (value.rfind("wss://", 0) != 0) {
-        ESP_LOGE(TAG, "Rejecting non-wss CSMS URL from HA");
+      if (!this->url_scheme_allowed_(value)) {
+        if (value.rfind("ws://", 0) == 0) {
+          ESP_LOGE(TAG, "Rejecting ws:// CSMS URL from HA — allow_cleartext_ws is false");
+        } else {
+          ESP_LOGE(TAG, "Rejecting non-ws/wss CSMS URL from HA");
+        }
         if (this->csms_url_text_ != nullptr) {
           this->csms_url_text_->publish_state(this->csms_url_);
         }
@@ -580,6 +647,25 @@ void OcppClientComponent::handle_param_write_(OcppParamText::Kind kind, const st
       }
       this->csms_url_ = value;
       this->has_url_override_ = true;
+      if (this->is_cleartext_ws_url_()) {
+        ESP_LOGW(TAG, "HA set cleartext ws:// CSMS URL — Remote* forced OFF while cleartext");
+        this->allow_remote_start_ = false;
+        this->allow_remote_stop_ = false;
+        this->allow_reset_ = false;
+        this->allow_unlock_ = false;
+        if (this->remote_start_switch_ != nullptr) {
+          this->remote_start_switch_->publish_state(false);
+        }
+        if (this->remote_stop_switch_ != nullptr) {
+          this->remote_stop_switch_->publish_state(false);
+        }
+        if (this->reset_switch_ != nullptr) {
+          this->reset_switch_->publish_state(false);
+        }
+        if (this->unlock_switch_ != nullptr) {
+          this->unlock_switch_->publish_state(false);
+        }
+      }
       break;
     case OcppParamText::CHARGE_POINT_ID:
       this->charge_point_id_ = value;

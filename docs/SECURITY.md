@@ -55,13 +55,13 @@ that owns RS-485. Treat CSMS as remote admin.
 
 | Control | Requirement |
 |---------|-------------|
-| Transport | `wss://` only (schema + runtime HA URL reject `ws://`) |
+| Transport | **`wss://` default**. `ws://` only if `allow_cleartext_ws` DEFAULT **OFF** **and** RFC1918 / `.local` / hostname→RFC1918 — **never** public cleartext; WARN every accept; **remove flag after wss handoff** (lab-only, not prod-config) |
 | TLS verify | **Default ON** (`crt_bundle_attach`). Prefer lab CA (`ca_cert`). `allow_insecure_tls` DEFAULT **OFF**; if ON, **only** RFC1918 / `.local` / hostname→RFC1918 — **never** public IP/DNS/cloud; WARN every accept |
 | Amp profiles | Global + per-connector wishes; **hard caps / per-EVSE limits win** |
 | CSMS down | `fail_safe_amps` (≤ hard cap), never full open |
 | Enable | YAML default **off**; HA `enable_switch` can stop → fail-safe + disconnect |
 | Secrets | `ocpp_*` via `!secret` and/or NVS HA overrides — **never commit**; rotate; theft of ESP = credential risk |
-| Lab remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF** (independent switches); AUDIT log |
+| Lab remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF** (independent switches); AUDIT log; **forced OFF while cleartext `ws://`** |
 | Firmware | **UpdateFirmware always rejected** until signed image + rollback |
 | Cloud CSMS | Lab accept is **LAN/VPN only**. Enabling remotes (or trusting) a **public cloud CSMS** needs a **new risk accept**. Production/cloud **must** verify TLS (bundle or CA) |
 | OCPP 2.0.1 | Not enabled |

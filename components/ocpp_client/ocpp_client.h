@@ -75,6 +75,7 @@ class OcppClientComponent : public Component {
   void set_charge_point_vendor(const std::string &v) { this->vendor_ = v; }
   void set_charge_point_model(const std::string &m) { this->model_ = m; }
   void set_allow_insecure_tls(bool v) { this->allow_insecure_tls_ = v; }
+  void set_allow_cleartext_ws(bool v) { this->allow_cleartext_ws_ = v; }
   void set_crt_bundle_attach(bool v) { this->crt_bundle_attach_ = v; }
   void set_ca_cert(const std::string &pem) { this->ca_cert_ = pem; }
 
@@ -147,7 +148,8 @@ class OcppClientComponent : public Component {
   void on_remote_event_(const char *action, unsigned connector_id, bool accepted, const char *detail);
 
   void handle_enable_write_(bool state);
-  void handle_feature_write_(OcppFeatureSwitch::Kind kind, bool state);
+  /* Returns effective state to publish (may force false on cleartext ws). */
+  bool handle_feature_write_(OcppFeatureSwitch::Kind kind, bool state);
   void handle_param_write_(OcppParamText::Kind kind, const std::string &value);
   void handle_fail_safe_press_();
 
@@ -168,6 +170,8 @@ class OcppClientComponent : public Component {
   std::string effective_url_() const;
   static std::string redact_wss_url_(const std::string &url);
   static void log_wss_target_(const char *phase, const std::string &url);
+  bool is_cleartext_ws_url_() const;
+  bool url_scheme_allowed_(const std::string &url) const;
 
   twc_director::TWCDirectorComponent *director_{nullptr};
   bool enabled_default_{false};
@@ -193,6 +197,7 @@ class OcppClientComponent : public Component {
   std::string model_{"TWC-Director"};
   std::string resolved_url_;
   bool allow_insecure_tls_{false};
+  bool allow_cleartext_ws_{false};
   bool crt_bundle_attach_{true};
   std::string ca_cert_;
 

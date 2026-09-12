@@ -20,12 +20,28 @@ const char *TAG = "ocpp_ws";
 
 unsigned long now_ms() { return static_cast<unsigned long>(esp_timer_get_time() / 1000ULL); }
 
-bool parse_host_port_path(const std::string &url, std::string *host, unsigned *port, std::string *path) {
-  constexpr const char *kPref = "wss://";
-  if (url.rfind(kPref, 0) != 0) {
+bool is_wss_url(const std::string &url) { return url.rfind("wss://", 0) == 0; }
+bool is_ws_url(const std::string &url) { return url.rfind("ws://", 0) == 0; }
+
+bool parse_host_port_path(const std::string &url, std::string *host, unsigned *port, std::string *path,
+                          bool *out_cleartext = nullptr) {
+  size_t scheme_len = 0;
+  unsigned default_port = 443;
+  bool cleartext = false;
+  if (is_wss_url(url)) {
+    scheme_len = 6;
+    default_port = 443;
+  } else if (is_ws_url(url)) {
+    scheme_len = 5;
+    default_port = 80;
+    cleartext = true;
+  } else {
     return false;
   }
-  std::string rest = url.substr(6);
+  if (out_cleartext != nullptr) {
+    *out_cleartext = cleartext;
+  }
+  std::string rest = url.substr(scheme_len);
   size_t slash = rest.find('/');
   size_t at = rest.find('@');
   if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
@@ -35,7 +51,7 @@ bool parse_host_port_path(const std::string &url, std::string *host, unsigned *p
   std::string hostport = (slash == std::string::npos) ? rest : rest.substr(0, slash);
   *path = (slash == std::string::npos) ? "/" : rest.substr(slash);
   *host = hostport;
-  *port = 443;
+  *port = default_port;
   size_t colon = hostport.rfind(':');
   if (colon != std::string::npos && hostport.find(']') == std::string::npos) {
     *host = hostport.substr(0, colon);
@@ -48,15 +64,16 @@ bool parse_host_port_path(const std::string &url, std::string *host, unsigned *p
 }
 
 // Log host/port/path only — strip userinfo; never log password/auth key.
-void log_wss_target(const char *phase, const std::string &url) {
+void log_ws_target(const char *phase, const std::string &url) {
   std::string host, path;
   unsigned port = 443;
-  if (!parse_host_port_path(url, &host, &port, &path)) {
-    ESP_LOGE(TAG, "%s: refusing non-wss (url_len=%u)", phase, static_cast<unsigned>(url.size()));
+  bool cleartext = false;
+  if (!parse_host_port_path(url, &host, &port, &path, &cleartext)) {
+    ESP_LOGE(TAG, "%s: refusing non-ws/wss (url_len=%u)", phase, static_cast<unsigned>(url.size()));
     return;
   }
-  ESP_LOGI(TAG, "%s: url_len=%u host=%s port=%u path=%s (auth not logged)", phase,
-           static_cast<unsigned>(url.size()), host.c_str(), port, path.c_str());
+  ESP_LOGI(TAG, "%s: url_len=%u host=%s port=%u path=%s cleartext=%d (auth not logged)", phase,
+           static_cast<unsigned>(url.size()), host.c_str(), port, path.c_str(), cleartext ? 1 : 0);
 }
 
 bool is_ipv4_literal(const std::string &host, unsigned *a, unsigned *b, unsigned *c, unsigned *d) {
@@ -149,7 +166,7 @@ bool hostname_resolves_rfc1918(const std::string &host) {
   return ok;
 }
 
-/* CISO: allow_insecure_tls only for RFC1918 literal, .local, or hostname→RFC1918. */
+/* CISO: allow_insecure_tls / allow_cleartext_ws only for RFC1918 literal, .local, or hostname→RFC1918. */
 bool insecure_host_allowed(const std::string &host) {
   if (is_rfc1918_ipv4_literal(host)) {
     return true;
@@ -175,25 +192,45 @@ void esp_ws_event_handler(void *handler_args, esp_event_base_t, int32_t event_id
 
 EspIdfWsConnection::~EspIdfWsConnection() { end(); }
 
-bool EspIdfWsConnection::begin(const std::string &wss_url, const std::string &username,
+bool EspIdfWsConnection::begin(const std::string &url, const std::string &username,
                                const std::string &auth_key, const EspIdfWsTlsOptions &tls) {
-  if (wss_url.rfind("wss://", 0) != 0) {
-    ESP_LOGE(TAG, "Refusing non-wss URL");
+  const bool want_wss = is_wss_url(url);
+  const bool want_ws = is_ws_url(url);
+  if (!want_wss && !want_ws) {
+    ESP_LOGE(TAG, "Refusing non-ws/wss URL");
     return false;
   }
-  log_wss_target("ws-begin-enter", wss_url);
+  log_ws_target("ws-begin-enter", url);
   ESP_LOGI(TAG, "ws-begin: username_set=%d auth_key_set=%d (values not logged)",
            username.empty() ? 0 : 1, auth_key.empty() ? 0 : 1);
 
   std::string host, path;
   unsigned port = 443;
-  if (!parse_host_port_path(wss_url, &host, &port, &path)) {
-    ESP_LOGE(TAG, "ws-begin: could not parse host from wss URL");
+  bool cleartext = false;
+  if (!parse_host_port_path(url, &host, &port, &path, &cleartext)) {
+    ESP_LOGE(TAG, "ws-begin: could not parse host from URL");
     return false;
   }
 
+  if (cleartext) {
+    if (!tls.allow_cleartext_ws) {
+      ESP_LOGE(TAG, "Refusing ws:// — allow_cleartext_ws is false (CISO: use wss://)");
+      return false;
+    }
+    if (!insecure_host_allowed(host)) {
+      ESP_LOGE(TAG,
+               "allow_cleartext_ws REJECTED for host=%s — not RFC1918 / .local / lab-resolved "
+               "(CISO: never cleartext against public IP/DNS/cloud). Use wss://.",
+               host.c_str());
+      return false;
+    }
+    ESP_LOGW(TAG,
+             "allow_cleartext_ws accepted host=%s cleartext=1 — plain ws:// (lab LAN only; move to wss)",
+             host.c_str());
+  }
+
   bool use_insecure = false;
-  if (tls.allow_insecure_tls) {
+  if (!cleartext && tls.allow_insecure_tls) {
     if (!insecure_host_allowed(host)) {
       ESP_LOGE(TAG,
                "allow_insecure_tls REJECTED for host=%s — not RFC1918 / .local / lab-resolved "
@@ -210,8 +247,8 @@ bool EspIdfWsConnection::begin(const std::string &wss_url, const std::string &us
   ca_cert_owned_.clear();
 
   esp_websocket_client_config_t cfg = {};
-  cfg.uri = wss_url.c_str();
-  cfg.transport = WEBSOCKET_TRANSPORT_OVER_SSL;
+  cfg.uri = url.c_str();
+  cfg.transport = cleartext ? WEBSOCKET_TRANSPORT_OVER_TCP : WEBSOCKET_TRANSPORT_OVER_SSL;
   cfg.subprotocol = "ocpp1.6";
   if (!username.empty()) {
     cfg.username = username.c_str();
@@ -220,7 +257,13 @@ bool EspIdfWsConnection::begin(const std::string &wss_url, const std::string &us
     cfg.password = auth_key.c_str();
   }
 
-  if (use_insecure) {
+  if (cleartext) {
+    // Non-SSL transport — no cert / bundle / skip-verify options.
+    cfg.cert_pem = nullptr;
+    cfg.crt_bundle_attach = nullptr;
+    cfg.use_global_ca_store = false;
+    ESP_LOGI(TAG, "ws-begin: WEBSOCKET_TRANSPORT_OVER_TCP (cleartext)");
+  } else if (use_insecure) {
 #if !defined(CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY) || !CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY
     ESP_LOGE(TAG,
              "allow_insecure_tls accepted for host=%s but firmware built without "

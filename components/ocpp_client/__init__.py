@@ -42,6 +42,7 @@ CONF_ALLOW_REMOTE_STOP = "allow_remote_stop"
 CONF_ALLOW_RESET = "allow_reset"
 CONF_ALLOW_UNLOCK = "allow_unlock"
 CONF_ALLOW_INSECURE_TLS = "allow_insecure_tls"
+CONF_ALLOW_CLEARTEXT_WS = "allow_cleartext_ws"
 CONF_CA_CERT = "ca_cert"
 CONF_CRT_BUNDLE_ATTACH = "crt_bundle_attach"
 
@@ -161,11 +162,12 @@ def _ensure_vendor_deps() -> None:
     _patch_mocpp_priv_includes(mocpp)
 
 
-def _validate_wss_url(value):
+def _validate_csms_url(value):
     value = cv.url(value)
-    if not value.lower().startswith("wss://"):
+    lower = value.lower()
+    if not (lower.startswith("wss://") or lower.startswith("ws://")):
         raise cv.Invalid(
-            "csms_url must use wss:// (TLS). Cleartext ws:// is rejected (CISO)."
+            "csms_url must use wss:// (TLS) or ws:// with allow_cleartext_ws (lab only)."
         )
     return value
 
@@ -180,6 +182,12 @@ def _validate_fail_safe(config):
             if key not in config:
                 raise cv.Invalid(f"'{key}' is required when ocpp_client.enabled is true")
         _ensure_vendor_deps()
+    url = config.get(CONF_CSMS_URL, "") or ""
+    if url.lower().startswith("ws://") and not config.get(CONF_ALLOW_CLEARTEXT_WS, False):
+        raise cv.Invalid(
+            "csms_url ws:// requires allow_cleartext_ws: true "
+            "(CISO lab gate; RFC1918/.local enforced at runtime)."
+        )
     return config
 
 
@@ -188,7 +196,7 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(OcppClientComponent),
             cv.Optional(CONF_ENABLED, default=False): cv.boolean,
-            cv.Optional(CONF_CSMS_URL): _validate_wss_url,
+            cv.Optional(CONF_CSMS_URL): _validate_csms_url,
             cv.Optional(CONF_CHARGE_POINT_ID): cv.string_strict,
             cv.Optional(CONF_AUTHORIZATION_KEY): cv.string_strict,
             cv.Required(CONF_TWC_DIRECTOR_ID): cv.use_id(TWCDirectorComponent),
@@ -251,6 +259,8 @@ CONFIG_SCHEMA = cv.All(
             ),
             # TLS: default verify via crt_bundle. allow_insecure_tls = lab-only (RFC1918/.local).
             cv.Optional(CONF_ALLOW_INSECURE_TLS, default=False): cv.boolean,
+            # Cleartext ws:// lab-only (same RFC1918/.local gate); DEFAULT false.
+            cv.Optional(CONF_ALLOW_CLEARTEXT_WS, default=False): cv.boolean,
             cv.Optional(CONF_CRT_BUNDLE_ATTACH, default=True): cv.boolean,
             cv.Optional(CONF_CA_CERT): cv.string,
         }
@@ -278,6 +288,7 @@ async def to_code(config):
         cg.add(var.set_authorization_key(config[CONF_AUTHORIZATION_KEY]))
 
     cg.add(var.set_allow_insecure_tls(config[CONF_ALLOW_INSECURE_TLS]))
+    cg.add(var.set_allow_cleartext_ws(config[CONF_ALLOW_CLEARTEXT_WS]))
     cg.add(var.set_crt_bundle_attach(config[CONF_CRT_BUNDLE_ATTACH]))
     if CONF_CA_CERT in config:
         cg.add(var.set_ca_cert(config[CONF_CA_CERT]))
@@ -345,6 +356,12 @@ async def to_code(config):
             _LOGGER.warning(
                 "ocpp_client.allow_insecure_tls: true — firmware will allow TLS verify "
                 "skip only for RFC1918 / .local lab CSMS hosts (CISO)."
+            )
+        if config.get(CONF_ALLOW_CLEARTEXT_WS):
+            _LOGGER.warning(
+                "ocpp_client.allow_cleartext_ws: true — firmware will allow ws:// only for "
+                "RFC1918 / .local lab CSMS hosts; Remote* stay OFF on cleartext (CISO). "
+                "Remove after wss handoff; never leave in prod-config."
             )
         cg.add_define("USE_MICROOCPP")
         cg.add_build_flag("-DMO_PLATFORM=MO_PLATFORM_ESPIDF")

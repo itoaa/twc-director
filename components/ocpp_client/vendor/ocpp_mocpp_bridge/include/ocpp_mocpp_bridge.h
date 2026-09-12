@@ -54,7 +54,7 @@ typedef struct {
 } twc_ocpp_telemetry_t;
 
 typedef struct {
-  const char *wss_url;           /* full wss://…/ChargePointId */
+  const char *wss_url;           /* full wss://… or (lab) ws://…/ChargePointId */
   const char *charge_point_id;   /* basic-auth username */
   const char *authorization_key; /* basic-auth password */
   const char *vendor;
@@ -62,6 +62,7 @@ typedef struct {
   unsigned num_connectors; /* 1..TWC_OCPP_MAX_CONNECTORS (MO_NUMCONNECTORS = n+1) */
   /* TLS: default verify via crt_bundle. allow_insecure_tls is lab-only (RFC1918/.local). */
   bool allow_insecure_tls;       /* DEFAULT false — runtime gated to private lab hosts */
+  bool allow_cleartext_ws;       /* DEFAULT false — ws:// only if ON + RFC1918/.local */
   bool crt_bundle_attach;        /* DEFAULT true when not insecure / no ca_cert */
   const char *ca_cert_pem;       /* optional PEM CA string; nullptr = unset */
   twc_ocpp_feature_flags_t flags;

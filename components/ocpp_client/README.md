@@ -8,14 +8,14 @@ Native **OCPP 1.6J** Charge Point client for the TWC Director. Embeds
 
 | Rule | Behaviour |
 |------|-----------|
-| Transport | `csms_url` must be `wss://` (YAML + HA text reject `ws://`) |
+| Transport | `wss://` default; `ws://` only with `allow_cleartext_ws` + RFC1918/`.local` (never public) |
 | Secrets | `!secret` and/or HA password text → NVS; never commit |
 | Default | `enabled: false` / omit block; HA enable can stop cleanly |
 | Hard caps | CSMS wishes clamped by director hard cap / per-EVSE max |
 | CSMS down | `fail_safe_amps` (≤ hard cap) |
-| Remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF**; UpdateFirmware **always rejected** |
+| Remotes | RemoteStart/Stop/Reset/Unlock **DEFAULT OFF**; **forced OFF on cleartext `ws://`**; UpdateFirmware **always rejected** |
 | Cloud | Lab = LAN/VPN CSMS; public cloud remotes need new risk accept |
-| TLS | Default `crt_bundle_attach: true`. Prefer `ca_cert` for lab CA. `allow_insecure_tls` DEFAULT false; only RFC1918/`.local` (CISO) |
+| TLS / WS | Default `crt_bundle_attach: true`. Prefer `ca_cert` for lab CA. `allow_insecure_tls` / `allow_cleartext_ws` DEFAULT false; RFC1918/`.local` gated (CISO) |
 
 ## TLS options
 
@@ -25,10 +25,12 @@ ocpp_client:
   crt_bundle_attach: true          # default — public CA verify
   # ca_cert: !secret ocpp_lab_ca_pem
   allow_insecure_tls: false        # lab PoC only; WARN + RFC1918/.local gate
+  allow_cleartext_ws: false        # lab LAN only; ws:// + RFC1918/.local; remove after wss
 ```
 
 Self-signed / bare IP on LAN: use `ca_cert` **or** temporary `allow_insecure_tls: true`.
-CitrineOS 1.6 WSS is often port **8092** (custom labs may use 8090).
+CitrineOS identification may use `ws://…:8081/<stationId>` with `allow_cleartext_ws: true` (Remote* stay OFF).
+CitrineOS 1.6 WSS is often port **8092** (custom labs may use 8090). After wss handoff, do not leave `allow_cleartext_ws` in prod-config.
 
 ## HA entities
 

@@ -14,9 +14,26 @@ namespace {
 const char *TAG = "ocpp_bridge";
 twc_ocpp::EspIdfWsConnection *g_ws = nullptr;
 bool g_started = false;
+bool g_cleartext_ws = false; /* set when active transport is ws:// */
 twc_ocpp_mocpp_config_t g_cfg{};
 twc_ocpp_feature_flags_t g_flags{};
 twc_ocpp_telemetry_t g_telem{};
+
+void force_remotes_off_if_cleartext_(const char *why) {
+  if (!g_cleartext_ws) {
+    return;
+  }
+  if (g_flags.allow_remote_start || g_flags.allow_remote_stop || g_flags.allow_reset ||
+      g_flags.allow_unlock) {
+    ESP_LOGW(TAG,
+             "cleartext ws: forcing Remote* flags OFF (%s) — CISO: remotes disabled on ws://",
+             why != nullptr ? why : "?");
+  }
+  g_flags.allow_remote_start = false;
+  g_flags.allow_remote_stop = false;
+  g_flags.allow_reset = false;
+  g_flags.allow_unlock = false;
+}
 
 void audit_(const char *action, unsigned connector_id, bool accepted, const char *detail) {
   ESP_LOGW(TAG, "AUDIT %s connector=%u accepted=%d detail=%s", action, connector_id, accepted ? 1 : 0,
@@ -141,6 +158,11 @@ extern "C" bool twc_ocpp_mocpp_start(const twc_ocpp_mocpp_config_t *cfg) {
   }
   g_cfg = *cfg;
   g_flags = cfg->flags;
+  {
+    const char *u = cfg->wss_url ? cfg->wss_url : "";
+    g_cleartext_ws = (std::strncmp(u, "ws://", 5) == 0);
+  }
+  force_remotes_off_if_cleartext_("mocpp_start");
 
   g_ws = new twc_ocpp::EspIdfWsConnection();
   const char *user = cfg->charge_point_id ? cfg->charge_point_id : "";
@@ -149,24 +171,36 @@ extern "C" bool twc_ocpp_mocpp_start(const twc_ocpp_mocpp_config_t *cfg) {
   {
     std::string url = cfg->wss_url ? cfg->wss_url : "";
     std::string rest = url;
+    const char *scheme = "wss://";
     if (rest.rfind("wss://", 0) == 0) {
       rest = rest.substr(6);
-      size_t slash = rest.find('/');
-      size_t at = rest.find('@');
-      if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
-        rest = rest.substr(at + 1);
-      }
-      ESP_LOGI(TAG, "before g_ws->begin: url_len=%u redacted=wss://%s user_set=%d auth_key_set=%d",
-               static_cast<unsigned>(url.size()), rest.c_str(), user[0] ? 1 : 0, pass[0] ? 1 : 0);
+    } else if (rest.rfind("ws://", 0) == 0) {
+      scheme = "ws://";
+      rest = rest.substr(5);
     } else {
-      ESP_LOGE(TAG, "before g_ws->begin: non-wss url_len=%u", static_cast<unsigned>(url.size()));
+      ESP_LOGE(TAG, "before g_ws->begin: non-ws/wss url_len=%u", static_cast<unsigned>(url.size()));
+      delete g_ws;
+      g_ws = nullptr;
+      g_cleartext_ws = false;
+      return false;
     }
+    size_t slash = rest.find('/');
+    size_t at = rest.find('@');
+    if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
+      rest = rest.substr(at + 1);
+    }
+    ESP_LOGI(TAG, "before g_ws->begin: url_len=%u redacted=%s%s user_set=%d auth_key_set=%d cleartext=%d",
+             static_cast<unsigned>(url.size()), scheme, rest.c_str(), user[0] ? 1 : 0, pass[0] ? 1 : 0,
+             g_cleartext_ws ? 1 : 0);
   }
   twc_ocpp::EspIdfWsTlsOptions tls{};
   tls.allow_insecure_tls = cfg->allow_insecure_tls;
+  tls.allow_cleartext_ws = cfg->allow_cleartext_ws;
   tls.crt_bundle_attach = cfg->crt_bundle_attach;
   tls.ca_cert_pem = cfg->ca_cert_pem;
-  if (tls.allow_insecure_tls) {
+  if (tls.allow_cleartext_ws && g_cleartext_ws) {
+    ESP_LOGW(TAG, "WS: allow_cleartext_ws requested (will apply only if host is RFC1918/.local lab)");
+  } else if (tls.allow_insecure_tls) {
     ESP_LOGW(TAG, "TLS: allow_insecure_tls requested (will apply only if host is RFC1918/.local lab)");
   } else if (tls.ca_cert_pem && tls.ca_cert_pem[0]) {
     ESP_LOGI(TAG, "TLS: custom ca_cert PEM (%u bytes)", (unsigned) strlen(tls.ca_cert_pem));
@@ -294,7 +328,8 @@ extern "C" void twc_ocpp_mocpp_set_feature_flags(const twc_ocpp_feature_flags_t 
     return;
   }
   g_flags = *flags;
-  ESP_LOGI(TAG, "Feature flags: remote_start=%d remote_stop=%d reset=%d unlock=%d",
+  force_remotes_off_if_cleartext_("set_feature_flags");
+  ESP_LOGI(TAG, "Feature flags: remote_start=%d remote_stop=%d reset=%d unlock=%d cleartext_ws=%d",
            g_flags.allow_remote_start ? 1 : 0, g_flags.allow_remote_stop ? 1 : 0,
-           g_flags.allow_reset ? 1 : 0, g_flags.allow_unlock ? 1 : 0);
+           g_flags.allow_reset ? 1 : 0, g_flags.allow_unlock ? 1 : 0, g_cleartext_ws ? 1 : 0);
 }

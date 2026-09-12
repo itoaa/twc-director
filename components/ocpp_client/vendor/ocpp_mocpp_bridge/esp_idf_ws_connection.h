@@ -7,6 +7,7 @@ namespace twc_ocpp {
 
 struct EspIdfWsTlsOptions {
   bool allow_insecure_tls{false}; /* lab-only; gated to RFC1918 / .local at begin() */
+  bool allow_cleartext_ws{false}; /* lab-only; ws:// only if ON + RFC1918 / .local */
   bool crt_bundle_attach{true};   /* Mozilla CA bundle (default verify path) */
   const char *ca_cert_pem{nullptr}; /* optional PEM CA; overrides bundle when set */
 };
@@ -16,7 +17,8 @@ class EspIdfWsConnection : public MicroOcpp::Connection {
   EspIdfWsConnection() = default;
   ~EspIdfWsConnection() override;
 
-  bool begin(const std::string &wss_url, const std::string &username, const std::string &auth_key,
+  /* url: wss:// (TLS) or ws:// when allow_cleartext_ws + RFC1918/.local gate. */
+  bool begin(const std::string &url, const std::string &username, const std::string &auth_key,
              const EspIdfWsTlsOptions &tls = {});
   void end();
 

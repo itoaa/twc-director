@@ -17,7 +17,7 @@
 
 ## Non-negotiable (CISO)
 
-- Transport: **wss** only (no cleartext `ws`) — YAML + runtime HA URL reject `ws://`
+- Transport: **`wss://` by default**. Cleartext **`ws://`** only with `allow_cleartext_ws: true` **and** RFC1918 / `.local` host gate (same helper as insecure TLS). Never public cleartext.
 - Unique Charge Point credentials; secrets **never** in git (`!secret` / NVS overrides)
 - OCPP **default OFF** (`enabled: false` or absent); HA enable switch can start/stop without rebuild when firmware linked
 - Fail-safe if CSMS is down: `fail_safe_amps` (≤ hard cap), not full open
@@ -33,10 +33,23 @@
 | `crt_bundle_attach` | `true` | Verify CSMS with ESP-IDF Mozilla CA bundle (cloud / public CA) |
 | `ca_cert` | unset | PEM string of lab/private CA (preferred for self-signed) |
 | `allow_insecure_tls` | `false` | Skip server cert verify — **lab only**, RFC1918/`.local` gated |
+| `allow_cleartext_ws` | `false` | Allow `ws://` — **lab LAN only**, same RFC1918/`.local` gate; WARN every accept |
 
-**CitrineOS:** stock OCPP 1.6 WSS is often **`wss://…:8092`**. A custom compose may use **8090** — match your CSMS config. Self-signed or bare-IP needs `ca_cert` **or** (lab) `allow_insecure_tls: true`.
+**CitrineOS:** identification / early lab often uses cleartext **`ws://…:8081/<stationId>`**. Stock OCPP 1.6 WSS is often **`wss://…:8092`** (custom compose may use **8090**). Self-signed WSS needs `ca_cert` **or** (lab) `allow_insecure_tls: true`. After WSS handoff, **remove** `allow_cleartext_ws` from prod-config (lab-only; never leave on).
 
-Example lab (Ola / RFC1918 IP, temporary insecure):
+Example lab cleartext (Ola / CitrineOS identification, station id 22):
+
+```yaml
+ocpp_client:
+  enabled: true
+  allow_cleartext_ws: true
+  csms_url: "ws://10.22.20.76:8081/22"
+  charge_point_id: !secret ocpp_charge_point_id
+  authorization_key: !secret ocpp_authorization_key
+  # Remote* must stay OFF while ws:// (enforced even if HA switches flipped)
+```
+
+Example lab WSS (temporary insecure TLS):
 
 ```yaml
 ocpp_client:
@@ -49,17 +62,17 @@ ocpp_client:
   # ca_cert: !secret ocpp_lab_ca_pem
 ```
 
-Production / cloud: leave `allow_insecure_tls` false; use public CA bundle or pin `ca_cert`.
+Production / cloud: leave `allow_insecure_tls` and `allow_cleartext_ws` false; use `wss://` + public CA bundle or pin `ca_cert`. **Never public cleartext.**
 
 ## Runtime HA surface (Max #3)
 
 | Entity | Purpose |
 |--------|---------|
 | `enable_switch` | Start/stop CSMS client without reflash; OFF → fail-safe + clean mocpp stop |
-| `csms_url_text` / `charge_point_id_text` / `authorization_key_text` | Runtime overrides (wss only; key shown as `********`) |
+| `csms_url_text` / `charge_point_id_text` / `authorization_key_text` | Runtime overrides (`wss://`, or lab `ws://` if flag on; key shown as `********`) |
 | `connected` / `connection_state` / `last_applied_amps` | CSMS observability |
 | `fail_safe_button` («återställ till fail-safe») | Calls `apply_fail_safe_` |
-| `allow_remote_*` switches | Lab gates for RemoteStart/Stop/Reset/Unlock (DEFAULT OFF) |
+| `allow_remote_*` switches | Lab gates for RemoteStart/Stop/Reset/Unlock (DEFAULT OFF; **forced OFF while `ws://`**) |
 
 YAML `!secret` values seed the device; HA edits persist in NVS (not git).
 
@@ -89,6 +102,8 @@ Fed from `twc_director` site/slot telemetry (not empty MicroOCPP defaults):
 
 Every remote receive/accept/reject is **AUDIT**-logged.
 
+**Cleartext `ws://`:** while the active CSMS URL is cleartext, Remote* remain **OFF** (HA switches refused / bridge forces flags false). Enable remotes only after moving to `wss://`.
+
 ## Per-connector amp (Max #10) / OCPP 2.0.1
 
 - **1.6J per-connector:** `MO_NUMCONNECTORS=5` (CP + 4 slots). Connector `N` ↔ EVSE slot `N-1`. Global hard cap remains ceiling.
@@ -98,7 +113,7 @@ Every remote receive/accept/reject is **AUDIT**-logged.
 
 - Remote firmware / signed OTA path (stub reject)
 - OCPP 2.0.1 protocol selection
-- Cleartext `ws://`
+- Public / non-RFC1918 cleartext `ws://` (lab LAN only behind `allow_cleartext_ws`)
 - Raising amps above YAML/compile hard caps
 - Committing secrets
 
@@ -187,6 +202,7 @@ Local compile 2026-09-11 (also re-checked in CI «Firmware size» step):
 3. Flash `tesla-director-ocpp.yaml` (keep `tesla-director.yaml` clean)
 4. Prefer **lab CSMS on LAN/VPN**; leave remote-* switches OFF unless risk-accepted
 4b. TLS: prefer lab CA (`ca_cert`); `allow_insecure_tls` only on RFC1918/`.local` PoC (never production/cloud)
+4c. Cleartext: `allow_cleartext_ws` only for lab LAN identification (`ws://10.x…`); remove after wss handoff; Remote* stay OFF on ws
 4c. CitrineOS 1.6 often listens on **8092** (not 8090) — confirm your websocketServers port
 5. Confirm BootNotification / Heartbeat; MeterValues move with TWC telemetry
 6. From CSMS, SetChargingProfile — global/connector max never above hard cap
