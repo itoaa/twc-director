@@ -92,8 +92,19 @@ void log_callback_shim(twc_log_level_t level,
 // COMPONENT LIFECYCLE
 // =============================================================================
 
+void TWCDirectorComponent::dump_config() {
+  ESP_LOGCONFIG(TAG, "TWC Director:");
+  ESP_LOGCONFIG(TAG, "  Master address: 0x%04X", this->master_address_);
+  LOG_PIN("  Flow control pin: ", this->flow_control_pin_);
+}
+
 void TWCDirectorComponent::setup() {
   ESP_LOGI(TAG, "TWC Director setup (master=0x%04X)", this->master_address_);
+
+  if (this->flow_control_pin_ != nullptr) {
+    this->flow_control_pin_->setup();
+    this->flow_control_pin_->digital_write(false);  // receive / idle
+  }
 
   // Initialize core and frame decoder
   twc_core_init(&this->core_);
@@ -344,8 +355,17 @@ void TWCDirectorComponent::drain_tx_queue_(uint32_t now) {
   PendingTx pending = this->tx_queue_.front();
   this->tx_queue_.erase(this->tx_queue_.begin());
 
+  // MAX485: DE+RE high = drive the bus, then back to receive after the UART
+  // has actually shifted the bytes out (same pattern as jnicolson/esphome-twc-controller).
+  if (this->flow_control_pin_ != nullptr) {
+    this->flow_control_pin_->digital_write(true);
+  }
   for (size_t i = 0; i < pending.len; ++i) {
     this->write(pending.buf[i]);
+  }
+  this->flush();
+  if (this->flow_control_pin_ != nullptr) {
+    this->flow_control_pin_->digital_write(false);
   }
 
   this->next_tx_at_ms_ = now + TX_INTERFRAME_GAP_MS;

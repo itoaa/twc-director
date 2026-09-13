@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "esphome/core/component.h"
+#include "esphome/core/gpio.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
@@ -148,6 +149,10 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   // Component lifecycle
   void setup() override;
   void loop() override;
+  void dump_config() override;
+
+  // MAX485 DE+RE (HIGH = transmit, LOW = receive). Omit for auto-direction chips.
+  void set_flow_control_pin(GPIOPin *pin) { this->flow_control_pin_ = pin; }
 
   // Called by TWCDirectorContactorSwitch when the contactor switch is toggled.
   // This is where bus-level contactor control will eventually be implemented.
@@ -426,6 +431,9 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   std::uint32_t tx_frames_queued_{0};
   std::uint32_t tx_frames_dropped_{0};
   std::uint32_t tx_encode_failures_{0};
+
+  // MAX485 DE+RE. HIGH while transmitting; LOW (receive) otherwise. Null = unused.
+  GPIOPin *flow_control_pin_{nullptr};
 
   // Core TWC state (C99 library) used for presence/online tracking,
   // automatic EVSE binding, and real-world metrics/orchestration.

@@ -42,9 +42,10 @@ Komponenten agerar **TWC Director** (master) på RS-485-bussen och ger:
 |-------|--------|----------|
 | GPIO22 | TX/DI | UART TX |
 | GPIO21 | RX/RO | UART RX |
-| GPIO16 | EN (boost) | Valfri 5V boost |
-| GPIO19 | ~SHDN | HIGH = enable |
-| GPIO17 | RE | HIGH = receive enable |
+| GPIO18 | DE+RE | MAX485: knyt DE och RE hit (`flow_control_pin`). HIGH=sänd, LOW=lyssna |
+| GPIO16 | EN (boost) | Valfri 5V boost (TCAN485) |
+| GPIO19 | ~SHDN | HIGH = enable (TCAN485) |
+| GPIO17 | RE | MAX13487E: HIGH = receive enable. Används inte med MAX485 |
 | 3.3V / GND | VCC / GND | Ström |
 
 A/B på transceivern kopplas till TWC:ns RS-485-terminaler. UART: **9600 8N1**.

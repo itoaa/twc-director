@@ -134,6 +134,9 @@ select:
 twc_director:
   id: twc_component
   uart_id: twc_uart
+  # MAX485: knyt DE och RE ihop och hit. HIGH=sänd, LOW=lyssna.
+  # MAX13487E/TCAN485: ta bort den här raden (auto-direction).
+  flow_control_pin: GPIO18
   addr: ${master_addr}
   global_max_current: ${global_max_current}
   global_twc_max_current: ${global_twc_max_current}

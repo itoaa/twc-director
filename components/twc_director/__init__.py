@@ -3,11 +3,14 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 
+from esphome import pins
+from esphome.cpp_helpers import gpio_pin_expression
 from esphome.components import uart, switch, binary_sensor, text_sensor, sensor, number, button
 from esphome.const import (
     CONF_ID,
     CONF_UART_ID,
     CONF_NAME,
+    CONF_FLOW_CONTROL_PIN,
     UNIT_AMPERE,
     UNIT_VOLT,
     UNIT_WATT,
@@ -189,6 +192,8 @@ CONFIG_SCHEMA = (
                 _with_default_name("td master mode"),
                 switch.switch_schema(TWCDirectorMasterModeSwitch),
             ),
+            # MAX485 DE+RE (HIGH=TX, LOW=RX). Omit for MAX13487E auto-direction.
+            cv.Optional(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
             cv.Required(CONF_MASTER_ADDR): cv.hex_int,
             # Required safety budget across all EVSEs (amps). Must be > 0.
             cv.Required(CONF_GLOBAL_MAX_CURRENT): cv.positive_float,
@@ -418,6 +423,10 @@ async def to_code(config):
     if CONF_EVSE_MAX_CURRENT_LIMIT in config:
         evse_max = config[CONF_EVSE_MAX_CURRENT_LIMIT]
         cg.add(var.set_evse_max_current_limit(evse_max))
+
+    if CONF_FLOW_CONTROL_PIN in config:
+        pin = await gpio_pin_expression(config[CONF_FLOW_CONTROL_PIN])
+        cg.add(var.set_flow_control_pin(pin))
 
     # Register as a regular ESPHome component so loop()/setup() are called
     await cg.register_component(var, config)

@@ -111,6 +111,7 @@ output:
 twc_director:
   id: twc_component
   uart_id: twc_uart
+  flow_control_pin: GPIO18
   addr: ${master_addr}
   global_max_current: ${global_max_current}
   global_twc_max_current: ${global_twc_max_current}
