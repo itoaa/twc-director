@@ -7,12 +7,15 @@
 # installation breaker rating (minus margin), not an aspirational value.
 
 substitutions:
-  global_max_current: "32"      # Total circuit budget (amps) — REQUIRED safety limit
-  global_twc_max_current: "16"  # Per-TWC hardware/cable limit
+  global_max_current: "32"      # cap: total circuit budget (amps)
+  global_twc_max_current: "16"  # cap: per-TWC hardware/cable limit
   master_addr: "0xF00D"
-  twc_0_name: "Garage"
-  twc_0_initial_current: "6"    # Conservative start allocation
+  twc_0_name: "Slot 0"
+  twc_0_initial_current: "6"
   twc_0_max_current: "16"
+  twc_1_name: "Slot 1"
+  twc_1_initial_current: "6"
+  twc_1_max_current: "16"
 
 esphome:
   name: tesla-director
@@ -29,11 +32,17 @@ esphome:
       - delay: 100ms
       # Master mode stays OFF until you enable it in Home Assistant.
       - number.set:
-          id: twc_0_max_current_num
+          id: twc_0_cap_max_current
           value: ${twc_0_max_current}
       - number.set:
-          id: twc_0_initial_current_num
+          id: twc_0_cap_initial_current
           value: ${twc_0_initial_current}
+      - number.set:
+          id: twc_1_cap_max_current
+          value: ${twc_1_max_current}
+      - number.set:
+          id: twc_1_cap_initial_current
+          value: ${twc_1_initial_current}
   on_shutdown:
     then:
       - output.turn_off: tcan485_boost_en
@@ -105,43 +114,149 @@ twc_director:
   addr: ${master_addr}
   global_max_current: ${global_max_current}
   global_twc_max_current: ${global_twc_max_current}
+  global_max_current_control:
+    id: cap_global_max
+    name: "cap global max"
   master_mode:
-    id: twc_master_mode
+    id: td_master_mode
+    name: "td master mode"
   charging_count:
+    name: "twc charging count"
   link_ok:
-    name: RS-485 Link
+    name: "twc link ok"
   evse:
     - name: ${twc_0_name}
       twc_online:
-      firmware_version:
+        name: "${twc_0_name} twc online"
+      charge_status:
+        name: "${twc_0_name} twc charge status"
+      charge_status_text:
+        name: "${twc_0_name} twc charge status text"
+      charging:
+        name: "${twc_0_name} twc charging"
+      power:
+        name: "${twc_0_name} twc power"
       meter_current_phase_a:
-        name: ${twc_0_name} Current
+        name: "${twc_0_name} twc current l1"
       meter_current_phase_b:
-        disabled_by_default: true
+        name: "${twc_0_name} twc current l2"
       meter_current_phase_c:
-        disabled_by_default: true
-      meter_energy_session:
-      meter_energy_total:
+        name: "${twc_0_name} twc current l3"
       meter_voltage_phase_a:
-        name: ${twc_0_name} Voltage
+        name: "${twc_0_name} twc voltage l1"
       meter_voltage_phase_b:
-        disabled_by_default: true
+        name: "${twc_0_name} twc voltage l2"
       meter_voltage_phase_c:
-        disabled_by_default: true
-      serial_number:
+        name: "${twc_0_name} twc voltage l3"
+      meter_energy_total:
+        name: "${twc_0_name} twc energy total"
+      meter_energy_session:
+        name: "${twc_0_name} twc energy session"
       vehicle_connected:
+        name: "${twc_0_name} twc vehicle connected"
       vehicle_vin:
-      contactor:
-      contactor_status:
-      available_current_sensor:
-      max_current:
-        id: twc_0_max_current_num
-      max_current_sensor:
-      initial_current:
-        id: twc_0_initial_current_num
-      session_current:
-      session_current_sensor:
+        name: "${twc_0_name} twc vin"
+      firmware_version:
+        name: "${twc_0_name} twc firmware"
+      serial_number:
+        name: "${twc_0_name} twc serial"
       mode:
+        name: "${twc_0_name} twc mode"
       status_text:
+        name: "${twc_0_name} twc status raw"
       status_log:
+        name: "${twc_0_name} twc status log"
+      contactor_status:
+        name: "${twc_0_name} twc contactor closed"
+      available_current_sensor:
+        name: "${twc_0_name} twc available current"
+      max_current_sensor:
+        name: "${twc_0_name} twc max current"
+      session_current_sensor:
+        name: "${twc_0_name} twc session current"
+      charge_enable:
+        id: twc_0_evcc_charge_enable
+        name: "${twc_0_name} evcc charge enable"
+      offered_current:
+        id: twc_0_evcc_offered_current
+        name: "${twc_0_name} evcc offered current"
+      evcc_watchdog_ok:
+        name: "${twc_0_name} td evcc watchdog ok"
+      max_current:
+        id: twc_0_cap_max_current
+        name: "${twc_0_name} cap max current"
+      initial_current:
+        id: twc_0_cap_initial_current
+        name: "${twc_0_name} cap initial current"
       enable:
+        name: "${twc_0_name} td bus enable"
+      contactor:
+        name: "${twc_0_name} td contactor"
+
+    - name: ${twc_1_name}
+      twc_online:
+        name: "${twc_1_name} twc online"
+      charge_status:
+        name: "${twc_1_name} twc charge status"
+      charge_status_text:
+        name: "${twc_1_name} twc charge status text"
+      charging:
+        name: "${twc_1_name} twc charging"
+      power:
+        name: "${twc_1_name} twc power"
+      meter_current_phase_a:
+        name: "${twc_1_name} twc current l1"
+      meter_current_phase_b:
+        name: "${twc_1_name} twc current l2"
+      meter_current_phase_c:
+        name: "${twc_1_name} twc current l3"
+      meter_voltage_phase_a:
+        name: "${twc_1_name} twc voltage l1"
+      meter_voltage_phase_b:
+        name: "${twc_1_name} twc voltage l2"
+      meter_voltage_phase_c:
+        name: "${twc_1_name} twc voltage l3"
+      meter_energy_total:
+        name: "${twc_1_name} twc energy total"
+      meter_energy_session:
+        name: "${twc_1_name} twc energy session"
+      vehicle_connected:
+        name: "${twc_1_name} twc vehicle connected"
+      vehicle_vin:
+        name: "${twc_1_name} twc vin"
+      firmware_version:
+        name: "${twc_1_name} twc firmware"
+      serial_number:
+        name: "${twc_1_name} twc serial"
+      mode:
+        name: "${twc_1_name} twc mode"
+      status_text:
+        name: "${twc_1_name} twc status raw"
+      status_log:
+        name: "${twc_1_name} twc status log"
+      contactor_status:
+        name: "${twc_1_name} twc contactor closed"
+      available_current_sensor:
+        name: "${twc_1_name} twc available current"
+      max_current_sensor:
+        name: "${twc_1_name} twc max current"
+      session_current_sensor:
+        name: "${twc_1_name} twc session current"
+      charge_enable:
+        id: twc_1_evcc_charge_enable
+        name: "${twc_1_name} evcc charge enable"
+      offered_current:
+        id: twc_1_evcc_offered_current
+        name: "${twc_1_name} evcc offered current"
+      evcc_watchdog_ok:
+        name: "${twc_1_name} td evcc watchdog ok"
+      max_current:
+        id: twc_1_cap_max_current
+        name: "${twc_1_name} cap max current"
+      initial_current:
+        id: twc_1_cap_initial_current
+        name: "${twc_1_name} cap initial current"
+      enable:
+        name: "${twc_1_name} td bus enable"
+      contactor:
+        name: "${twc_1_name} td contactor"

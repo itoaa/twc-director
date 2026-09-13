@@ -125,12 +125,28 @@ void TWCDirectorComponent::setup() {
   twc_core_set_autobind_callback(&this->core_, &autobind_callback_shim, this);
   twc_core_set_log_callback(&this->core_, &log_callback_shim, this);
 
-  // Initialize all EVSE slots as offline with session current at 0
+  // Initialize all EVSE slots as offline. evcc setpoints start at 0 / off
+  // (do not restore last session — a garage fuse must not come back at 15 A).
   for (auto &evse : evse_entries_) {
     this->publish_binary_sensor_if_changed_(evse.online, false);
     if (evse.session_current) {
       evse.session_current->publish_state(0.0f);
     }
+    evse.charge_enabled = false;
+    evse.offered_current_a = 0.0f;
+    evse.evcc_watchdog_armed = false;
+    evse.evcc_watchdog_tripped = false;
+    if (evse.charge_enable_switch) {
+      evse.charge_enable_switch->publish_state(false);
+    }
+    if (evse.offered_current) {
+      evse.offered_current->publish_state(0.0f);
+    }
+    if (evse.evcc_watchdog_ok) {
+      evse.evcc_watchdog_ok->publish_state(true);
+    }
+    this->publish_charge_status_(evse, "F", "twc_offline");
+    this->publish_binary_sensor_if_changed_(evse.charging, false);
   }
 }
 
@@ -141,6 +157,7 @@ void TWCDirectorComponent::loop() {
   this->update_master_mode_(now);   // Monitor master mode switch
   this->run_master_tick_(now);      // Core master logic
   this->update_evse_metrics_(now);  // Core → ESPHome sensors
+  this->update_evcc_watchdog_(now);
   this->drain_tx_queue_(now);       // Queued frames → UART
 
   // Update link health sensor
@@ -380,6 +397,13 @@ void TWCDirectorComponent::handle_auto_bind_(uint16_t address, twc_mode_t mode) 
       if (evse.enable_switch) {
         evse.enable_switch->set_parent(this, address);
       }
+      if (evse.charge_enable_switch) {
+        evse.charge_enable_switch->set_parent(this, address);
+      }
+      if (evse.offered_current) {
+        auto *n = static_cast<TWCDirectorCurrentNumber *>(evse.offered_current);
+        n->set_parent(this, address, TWCDirectorCurrentNumber::TYPE_OFFERED);
+      }
 
       int slot = &evse - this->evse_entries_.data();
       ESP_LOGI(TAG, "Auto-bound slot %d → TWC 0x%04X (mode=%d)",
@@ -436,12 +460,17 @@ void TWCDirectorComponent::update_master_mode_(uint32_t now) {
 // =============================================================================
 
 void TWCDirectorComponent::update_evse_metrics_(uint32_t now) {
+  const bool link_ok =
+      this->last_valid_frame_ms_ != 0 && (now - this->last_valid_frame_ms_) < LINK_TIMEOUT_MS;
+
   for (auto &evse : this->evse_entries_) {
-    if (!evse.bound) continue;  // Skip unbound slots
-    
+    this->update_charge_status_(evse, now, link_ok);
+    if (!evse.bound)
+      continue;  // Skip unbound slots
+
     // Sync desired current from number entity to core
     this->sync_desired_current_(evse);
-    
+
     // Update all sensors from core state
     this->update_evse_sensors_(evse, now);
   }
@@ -623,12 +652,17 @@ void TWCDirectorComponent::update_evse_sensors_(EvseEntry &evse, uint32_t now) {
                        twc_device_get_total_energy_kwh(dev), 0.001f);
   this->publish_sensor_(evse.meter_energy_session,
                        twc_device_get_session_energy_kwh(dev), 0.001f);
-  
+
+  this->publish_sensor_(evse.power, this->compute_power_w_(dev), 1.0f);
+
   // Current allocation
   float initial_current_a = twc_core_get_current_available_a(core_dev);
   this->publish_sensor_(evse.available_current_sensor, initial_current_a);
 
   this->publish_sensor_(evse.session_current_sensor, session_amps);
+  if (evse.max_current_sensor && evse.max_current && evse.max_current->has_state()) {
+    this->publish_sensor_(evse.max_current_sensor, evse.max_current->state);
+  }
 }
 
 float TWCDirectorComponent::compute_session_amps_(const twc_device_t *dev) const {
@@ -639,6 +673,164 @@ float TWCDirectorComponent::compute_session_amps_(const twc_device_t *dev) const
   float c = twc_device_get_phase_c_current_a(dev);
   
   return (a > b) ? ((a > c) ? a : c) : ((b > c) ? b : c);
+}
+
+float TWCDirectorComponent::compute_power_w_(const twc_device_t *dev) const {
+  if (!dev)
+    return 0.0f;
+  float watts = 0.0f;
+  const float ia = twc_device_get_phase_a_current_a(dev);
+  const float ib = twc_device_get_phase_b_current_a(dev);
+  const float ic = twc_device_get_phase_c_current_a(dev);
+  const float va = twc_device_get_phase_a_voltage_v(dev);
+  const float vb = twc_device_get_phase_b_voltage_v(dev);
+  const float vc = twc_device_get_phase_c_voltage_v(dev);
+  if (ia > 0.05f && va > 50.0f)
+    watts += ia * va;
+  if (ib > 0.05f && vb > 50.0f)
+    watts += ib * vb;
+  if (ic > 0.05f && vc > 50.0f)
+    watts += ic * vc;
+  return watts;
+}
+
+void TWCDirectorComponent::publish_charge_status_(EvseEntry &evse, const char *letter,
+                                                  const char *text) {
+  this->publish_text_sensor_if_changed_(evse.charge_status, letter ? letter : "F");
+  this->publish_text_sensor_if_changed_(evse.charge_status_text, text ? text : "twc_offline");
+}
+
+void TWCDirectorComponent::update_charge_status_(EvseEntry &evse, uint32_t now, bool link_ok) {
+  if (!link_ok) {
+    this->publish_charge_status_(evse, "F", "rs485_disconnected");
+    this->publish_binary_sensor_if_changed_(evse.charging, false);
+    this->publish_sensor_(evse.power, 0.0f, 1.0f);
+    return;
+  }
+  if (!evse.bound || evse.address == 0) {
+    this->publish_charge_status_(evse, "F", "twc_offline");
+    this->publish_binary_sensor_if_changed_(evse.charging, false);
+    this->publish_sensor_(evse.power, 0.0f, 1.0f);
+    return;
+  }
+
+  twc_core_device_t *core_dev = twc_core_get_device_by_address(&this->core_, evse.address);
+  const bool online = core_dev && twc_core_device_online(&this->core_, core_dev, now);
+  if (!online) {
+    this->publish_charge_status_(evse, "F", "twc_offline");
+    this->publish_binary_sensor_if_changed_(evse.charging, false);
+    this->publish_sensor_(evse.power, 0.0f, 1.0f);
+    return;
+  }
+
+  const twc_device_t *dev = &core_dev->device;
+  const int status_code = twc_device_get_status_code(dev);
+  if (status_code == TWC_HB_ERROR) {
+    this->publish_charge_status_(evse, "F", "error");
+    this->publish_binary_sensor_if_changed_(evse.charging, false);
+    return;
+  }
+
+  const bool vehicle = twc_device_get_vehicle_connected(dev);
+  const float session_amps = this->compute_session_amps_(dev);
+  const bool drawing = session_amps > 0.1f;
+  const bool twc_charging = drawing || status_code == TWC_HB_CHARGING ||
+                            status_code == TWC_HB_CHARGE_STARTED ||
+                            status_code == TWC_HB_MAX_CHARGE;
+  if (twc_charging) {
+    this->publish_charge_status_(evse, "C", "charging");
+    this->publish_binary_sensor_if_changed_(evse.charging, true);
+    return;
+  }
+  if (vehicle) {
+    const bool waiting =
+        status_code == TWC_HB_WAITING || status_code == TWC_HB_NEGOTIATING;
+    this->publish_charge_status_(evse, "B", waiting ? "waiting" : "connected");
+    this->publish_binary_sensor_if_changed_(evse.charging, false);
+    return;
+  }
+  this->publish_charge_status_(evse, "A", "disconnected");
+  this->publish_binary_sensor_if_changed_(evse.charging, false);
+}
+
+TWCDirectorComponent::EvseEntry *TWCDirectorComponent::find_evse_for_control_(uint16_t address) {
+  if (address != 0) {
+    EvseEntry *bound = this->find_evse_(address);
+    if (bound)
+      return bound;
+  }
+  for (auto &e : this->evse_entries_) {
+    if (!e.bound)
+      return &e;
+  }
+  return nullptr;
+}
+
+void TWCDirectorComponent::note_evcc_write_(EvseEntry &evse) {
+  evse.last_evcc_write_ms = millis();
+  evse.evcc_watchdog_armed = true;
+  if (evse.evcc_watchdog_tripped) {
+    ESP_LOGI(TAG, "TWC 0x%04X: evcc watchdog cleared", evse.address);
+  }
+  evse.evcc_watchdog_tripped = false;
+  this->publish_binary_sensor_if_changed_(evse.evcc_watchdog_ok, true);
+}
+
+float TWCDirectorComponent::clamp_offered_current_(EvseEntry &evse, float amps) const {
+  float value = amps;
+  if (value < 0.0f)
+    value = 0.0f;
+  if (value > 0.0f && value < MIN_CHARGE_CURRENT_A)
+    value = MIN_CHARGE_CURRENT_A;
+  if (evse.max_current && evse.max_current->has_state() && evse.max_current->state > 0.0f) {
+    if (value > evse.max_current->state)
+      value = evse.max_current->state;
+  }
+  const float global_max = this->get_effective_global_max_current_();
+  if (global_max > 0.0f && value > global_max)
+    value = global_max;
+  if (this->evse_max_current_limit_a_ > 0.0f && value > this->evse_max_current_limit_a_)
+    value = this->evse_max_current_limit_a_;
+  return value;
+}
+
+void TWCDirectorComponent::apply_evcc_session_(EvseEntry &evse) {
+  if (!evse.bound || evse.address == 0)
+    return;
+
+  float amps = 0.0f;
+  if (evse.charge_enabled && !evse.evcc_watchdog_tripped) {
+    amps = this->clamp_offered_current_(evse, evse.offered_current_a);
+  }
+  ESP_LOGI(TAG, "TWC 0x%04X: apply evcc session %.1fA (enable=%d watchdog=%d offered=%.1fA)",
+           evse.address, amps, evse.charge_enabled ? 1 : 0, evse.evcc_watchdog_tripped ? 1 : 0,
+           evse.offered_current_a);
+  twc_core_set_desired_session_current(&this->core_, evse.address, amps);
+}
+
+void TWCDirectorComponent::update_evcc_watchdog_(uint32_t now) {
+  for (auto &evse : this->evse_entries_) {
+    if (!evse.evcc_watchdog_armed || evse.evcc_watchdog_tripped)
+      continue;
+    if (now - evse.last_evcc_write_ms < EVCC_WATCHDOG_TIMEOUT_MS)
+      continue;
+    ESP_LOGW(TAG, "TWC 0x%04X: evcc watchdog timeout (%us) — session 0 A", evse.address,
+             static_cast<unsigned>(EVCC_WATCHDOG_TIMEOUT_MS / 1000U));
+    evse.evcc_watchdog_tripped = true;
+    this->publish_binary_sensor_if_changed_(evse.evcc_watchdog_ok, false);
+    this->apply_evcc_session_(evse);
+  }
+}
+
+void TWCDirectorComponent::set_charge_enabled(uint16_t address, bool enabled) {
+  EvseEntry *evse = this->find_evse_for_control_(address);
+  if (!evse) {
+    ESP_LOGW(TAG, "set_charge_enabled: EVSE 0x%04X not found", address);
+    return;
+  }
+  evse->charge_enabled = enabled;
+  this->note_evcc_write_(*evse);
+  this->apply_evcc_session_(*evse);
 }
 
 // =============================================================================
@@ -659,6 +851,22 @@ void TWCDirectorComponent::handle_current_number_control(
              value, this->global_max_current_a_);
 
     twc_core_set_global_max_current(&this->core_, value);
+    return;
+  }
+
+  if (type == TWCDirectorCurrentNumber::TYPE_OFFERED) {
+    EvseEntry *evse = this->find_evse_for_control_(address);
+    if (!evse) {
+      ESP_LOGW(TAG, "evcc offered current rejected: EVSE 0x%04X not found", address);
+      return;
+    }
+    float clamped = this->clamp_offered_current_(*evse, value);
+    evse->offered_current_a = clamped;
+    this->note_evcc_write_(*evse);
+    this->apply_evcc_session_(*evse);
+    if (evse->offered_current) {
+      evse->offered_current->publish_state(clamped);
+    }
     return;
   }
 
@@ -876,18 +1084,28 @@ void TWCDirectorEnableSwitch::write_state(bool state) {
   this->publish_state(state);
 }
 
+void TWCDirectorChargeEnableSwitch::write_state(bool state) {
+  ESP_LOGI(TAG, "ChargeEnable::write_state: addr=0x%04X enabled=%s",
+           this->address_, state ? "true" : "false");
+  if (this->parent_) {
+    this->parent_->set_charge_enabled(this->address_, state);
+  }
+  this->publish_state(state);
+}
+
 void TWCDirectorCurrentNumber::control(float value) {
   const char *type_str = (this->type_ == TYPE_MAX) ? "max" :
                          (this->type_ == TYPE_SESSION) ? "session" :
-                         (this->type_ == TYPE_GLOBAL_MAX) ? "global_max" : "initial";
+                         (this->type_ == TYPE_GLOBAL_MAX) ? "global_max" :
+                         (this->type_ == TYPE_OFFERED) ? "offered" : "initial";
 
   ESP_LOGI(TAG, "CurrentNumber::control called: addr=0x%04X value=%.1fA type=%s parent=%p",
            this->address_, value, type_str, (void*)this->parent_);
 
   float applied = value;
   if (this->parent_) {
-    // Global max doesn't need a valid address
-    if (this->type_ == TYPE_GLOBAL_MAX || this->address_ != 0) {
+    // Global max / evcc offered don't require a bound address at write time.
+    if (this->type_ == TYPE_GLOBAL_MAX || this->type_ == TYPE_OFFERED || this->address_ != 0) {
       this->parent_->handle_current_number_control(this->address_, value, this->type_);
       // Re-read clamps applied in parent for global max
       if (this->type_ == TYPE_GLOBAL_MAX) {
@@ -899,7 +1117,10 @@ void TWCDirectorCurrentNumber::control(float value) {
   } else {
     ESP_LOGW(TAG, "CurrentNumber::control: parent is null!");
   }
-  this->publish_state(applied);
+  // TYPE_OFFERED publishes the clamped value inside handle_current_number_control.
+  if (this->type_ != TYPE_OFFERED) {
+    this->publish_state(applied);
+  }
 }
 
 void TWCDirectorCurrentButton::press_action() {
@@ -1112,6 +1333,33 @@ void TWCDirectorComponent::add_evse(
   }
 
   evse_entries_.push_back(entry);
+}
+
+void TWCDirectorComponent::set_evse_adapter_entities(
+    std::size_t slot, text_sensor::TextSensor *charge_status,
+    text_sensor::TextSensor *charge_status_text, binary_sensor::BinarySensor *charging,
+    sensor::Sensor *power, TWCDirectorChargeEnableSwitch *charge_enable,
+    number::Number *offered_current, binary_sensor::BinarySensor *evcc_watchdog_ok) {
+  if (slot >= this->evse_entries_.size()) {
+    ESP_LOGE(TAG, "set_evse_adapter_entities: slot %u out of range", static_cast<unsigned>(slot));
+    return;
+  }
+  EvseEntry &entry = this->evse_entries_[slot];
+  entry.charge_status = charge_status;
+  entry.charge_status_text = charge_status_text;
+  entry.charging = charging;
+  entry.power = power;
+  entry.charge_enable_switch = charge_enable;
+  entry.offered_current = offered_current;
+  entry.evcc_watchdog_ok = evcc_watchdog_ok;
+
+  if (charge_enable) {
+    charge_enable->set_parent(this, entry.address);
+  }
+  if (offered_current) {
+    auto *n = static_cast<TWCDirectorCurrentNumber *>(offered_current);
+    n->set_parent(this, entry.address, TWCDirectorCurrentNumber::TYPE_OFFERED);
+  }
 }
 
 }  // namespace twc_director

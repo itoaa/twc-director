@@ -108,8 +108,47 @@ Se `tesla-director.yaml` för full exempel-setup. Viktiga nycklar under `twc_dir
 | `addr` | Director-adress på bussen (t.ex. `0xF00D`) |
 | `global_max_current` | Total maxström för alla TWC |
 | `global_twc_max_current` | Max per TWC |
-| `master_mode` | Switch: director aktiv |
-| `evse` | Lista med Wall Connectors / slots |
+| `master_mode` (`td master mode`) | Switch: director aktiv |
+| `evse` | Lista med Wall Connectors / slots (exempel-YAML har två) |
+
+Entitetsnamn visar vem som **skriver** värdet:
+
+| Prefix | Skriver | Exempel |
+|--------|---------|---------|
+| `twc_` | Tesla-director från RS-485 | `twc charge status`, `twc vin`, `twc power` |
+| `evcc_` | evcc via Home Assistant | `evcc charge enable`, `evcc offered current` |
+| `cap_` | du / YAML, hårda tak | `cap max current`, `cap global max` |
+| `td_` | Tesla-director lokalt | `td master mode`, `td bus enable`, `td evcc watchdog ok` |
+
+### Home Assistant → evcc
+
+evcc `template: homeassistant` per TWC (Slot 0 visad). Status är `A`/`B`/`C`/`F`.
+
+```yaml
+chargers:
+  - name: twc_slot_0
+    type: template
+    template: homeassistant
+    uri: http://homeassistant.local:8123
+    status: sensor.tesla_director_slot_0_twc_charge_status
+    enabled: switch.tesla_director_slot_0_evcc_charge_enable
+    enable: switch.tesla_director_slot_0_evcc_charge_enable
+    setMaxCurrent: number.tesla_director_slot_0_evcc_offered_current
+    power: sensor.tesla_director_slot_0_twc_power
+    energy: sensor.tesla_director_slot_0_twc_energy_total
+    currentL1: sensor.tesla_director_slot_0_twc_current_l1
+    currentL2: sensor.tesla_director_slot_0_twc_current_l2
+    currentL3: sensor.tesla_director_slot_0_twc_current_l3
+    voltageL1: sensor.tesla_director_slot_0_twc_voltage_l1
+    voltageL2: sensor.tesla_director_slot_0_twc_voltage_l2
+    voltageL3: sensor.tesla_director_slot_0_twc_voltage_l3
+```
+
+`twc charge status`: **A** disconnected, **B** connected/waiting, **C** charging, **F** RS-485 nere / TWC offline / error.
+
+VIN publiceras som `twc vin`. HA-mallen har inget identify-fält; använd evcc `vehicles.identifiers` eller custom charger `identify`.
+
+Lastbalans: evcc skriver `evcc offered current` (0 = stopp, ≥6 A = tak). Director klampar mot `cap_*`. Om evcc slutar skriva i 60 s sänks session till 0 A (`td evcc watchdog ok` blir av).
 
 ## Utveckling
 

@@ -54,8 +54,24 @@ class TWCDirectorMasterModeSwitch : public switch_::Switch {
 };
 
 // Per-EVSE enable switch. When OFF, the TWC Director will not communicate with
-// this EVSE (no heartbeats, no current allocation). This effectively stops charging.
+// this EVSE (no heartbeats, no current allocation). This is td_bus_enable —
+// not the evcc charge-enable path.
 class TWCDirectorEnableSwitch : public switch_::Switch {
+ public:
+  void set_parent(TWCDirectorComponent *parent, uint16_t address) {
+    this->parent_ = parent;
+    this->address_ = address;
+  }
+
+ protected:
+  void write_state(bool state) override;
+
+  TWCDirectorComponent *parent_{nullptr};
+  uint16_t address_{0};
+};
+
+// evcc_charge_enable: allow/deny charging. RS-485 telemetry continues either way.
+class TWCDirectorChargeEnableSwitch : public switch_::Switch {
  public:
   void set_parent(TWCDirectorComponent *parent, uint16_t address) {
     this->parent_ = parent;
@@ -72,10 +88,11 @@ class TWCDirectorEnableSwitch : public switch_::Switch {
 class TWCDirectorCurrentNumber : public number::Number {
  public:
   enum CurrentType {
-    TYPE_MAX,        // Max current (authoritative upper bound)
-    TYPE_INITIAL,    // Initial current (0x05 frame)
-    TYPE_SESSION,    // Session current (0x09 frame)
-    TYPE_GLOBAL_MAX  // Global max current control (runtime adjustable)
+    TYPE_MAX,        // cap_max_current — installer hard cap
+    TYPE_INITIAL,    // cap_initial_current — TWC 0x05 frame
+    TYPE_SESSION,    // lab session number (not evcc)
+    TYPE_GLOBAL_MAX, // cap_global_max
+    TYPE_OFFERED     // evcc_offered_current — load-manager setpoint
   };
 
   TWCDirectorCurrentNumber() = default;
@@ -143,6 +160,9 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   // When disabled, the TWC Director will not communicate with this EVSE.
   void set_evse_enabled(uint16_t address, bool enabled);
 
+  // evcc_charge_enable: start/stop charging without dropping the TWC off the bus.
+  void set_charge_enabled(uint16_t address, bool enabled);
+
   void add_evse(uint16_t address,
                 binary_sensor::BinarySensor *online,
                 text_sensor::TextSensor *firmware_version,
@@ -171,6 +191,16 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
                 TWCDirectorCurrentButton *increase_current_button,
                 TWCDirectorCurrentButton *decrease_current_button,
                 TWCDirectorEnableSwitch *enable_switch);
+
+  // Adapter entities for evcc via Home Assistant (slot index from YAML order).
+  void set_evse_adapter_entities(std::size_t slot,
+                                 text_sensor::TextSensor *charge_status,
+                                 text_sensor::TextSensor *charge_status_text,
+                                 binary_sensor::BinarySensor *charging,
+                                 sensor::Sensor *power,
+                                 TWCDirectorChargeEnableSwitch *charge_enable,
+                                 number::Number *offered_current,
+                                 binary_sensor::BinarySensor *evcc_watchdog_ok);
 
   void set_link_ok_sensor(binary_sensor::BinarySensor *sensor) {
     this->link_ok_sensor_ = sensor;
@@ -232,6 +262,12 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   // Interval between SLIP decoder diagnostic log messages.
   static constexpr std::uint32_t DECODER_STATS_INTERVAL_MS = 60000U;
 
+  // IEC / Tesla Gen2 minimum charge current. 0 A means stop.
+  static constexpr float MIN_CHARGE_CURRENT_A = 6.0f;
+
+  // If evcc stops writing offered current / charge enable, drop to 0 A.
+  static constexpr std::uint32_t EVCC_WATCHDOG_TIMEOUT_MS = 60000U;
+
   // =========================================================================
   // TX Statistics
   // =========================================================================
@@ -280,9 +316,24 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
     TWCDirectorCurrentButton *decrease_current_button{nullptr};
     TWCDirectorEnableSwitch *enable_switch{nullptr};
 
+    text_sensor::TextSensor *charge_status{nullptr};
+    text_sensor::TextSensor *charge_status_text{nullptr};
+    binary_sensor::BinarySensor *charging{nullptr};
+    sensor::Sensor *power{nullptr};
+    TWCDirectorChargeEnableSwitch *charge_enable_switch{nullptr};
+    number::Number *offered_current{nullptr};
+    binary_sensor::BinarySensor *evcc_watchdog_ok{nullptr};
+
     // Whether this EVSE is enabled for communication. When false, the TWC Director
     // will not send heartbeats or current allocations to this EVSE.
     bool enabled{true};
+
+    // evcc_charge_enable latch (independent of td_bus_enable).
+    bool charge_enabled{false};
+    float offered_current_a{0.0f};
+    std::uint32_t last_evcc_write_ms{0};
+    bool evcc_watchdog_armed{false};
+    bool evcc_watchdog_tripped{false};
 
     // Last operator-set currents (amps) for this EVSE, used to avoid
     // re-applying the same setpoint on every loop.
@@ -393,6 +444,14 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   // Per-EVSE update helpers used by update_evse_metrics_.
   void sync_desired_current_(EvseEntry &evse);
   void update_evse_sensors_(EvseEntry &evse, uint32_t now);
+  void publish_charge_status_(EvseEntry &evse, const char *letter, const char *text);
+  void update_charge_status_(EvseEntry &evse, uint32_t now, bool link_ok);
+  void apply_evcc_session_(EvseEntry &evse);
+  void note_evcc_write_(EvseEntry &evse);
+  void update_evcc_watchdog_(uint32_t now);
+  EvseEntry *find_evse_for_control_(uint16_t address);
+  float clamp_offered_current_(EvseEntry &evse, float amps) const;
+  float compute_power_w_(const twc_device_t *dev) const;
 
   // Helper methods for publishing sensor values
   void publish_sensor_(sensor::Sensor *sensor, float value, float epsilon = 0.01f);
