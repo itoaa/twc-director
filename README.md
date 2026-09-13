@@ -50,6 +50,10 @@ Komponenten agerar **TWC Director** (master) på RS-485-bussen och ger:
 
 A/B på transceivern kopplas till TWC:ns RS-485-terminaler. UART: **9600 8N1**.
 
+**MAX485 (DI/DE/RE/RO):** knyt **DE och RE ihop** till `flow_control_pin` (GPIO18 i exempel-YAML). Koppla **inte** GPIO17 till MAX485-RE — den pinnen är för MAX13487E (aktiv hög) och har motsatt polaritet. GPIO16/19 är TCAN485-boost/shutdown och behövs inte på ett vanligt MAX485-kort.
+
+**MAX13487E / TCAN485:** utelämna `flow_control_pin` (auto-direction). Behåll GPIO16/17/19 enligt YAML.
+
 ## Installation
 
 ### 1. Lokalt i det här repot (utveckling)
@@ -79,10 +83,12 @@ external_components:
   - source:
       type: git
       url: https://github.com/itoaa/twc-director.git
-      # ref: main   # valfritt: pinna branch/tag
+      ref: evcc-ha-adapter
+    components: [twc_director]
+    refresh: 0s
 ```
 
-Kopiera och anpassa `tesla-director.yaml`.
+Kopiera och anpassa `tesla-director.yaml`. Använd **inte** `Wired-Square/esphome-twc-director` — den branchen finns bara på `itoaa/twc-director`.
 
 ### ESPHome 2026.7.x
 
@@ -107,7 +113,8 @@ Se `tesla-director.yaml` för full exempel-setup. Viktiga nycklar under `twc_dir
 | Nyckel | Betydelse |
 |--------|-----------|
 | `addr` | Director-adress på bussen (t.ex. `0xF00D`) |
-| `global_max_current` | Total maxström för alla TWC |
+| `flow_control_pin` | Valfri GPIO till MAX485 DE+RE (HIGH=sänd, LOW=lyssna). Utelämna för auto-direction |
+| `global_max_current` | Total maxström för alla TWC (`cap global max`) |
 | `global_twc_max_current` | Max per TWC |
 | `master_mode` (`td master mode`) | Switch: director aktiv |
 | `evse` | Lista med Wall Connectors / slots (exempel-YAML har två) |
@@ -145,11 +152,11 @@ chargers:
     voltageL3: sensor.tesla_director_slot_0_twc_voltage_l3
 ```
 
-`twc charge status`: **A** disconnected, **B** connected/waiting, **C** charging, **F** RS-485 nere / TWC offline / error.
+`twc charge status`: **A** disconnected, **B** connected/waiting, **C** charging, **F** RS-485 nere / TWC offline / error. Klartext ligger i `twc charge status text`. evcc:s Home Assistant-GUI har bara A/B/C — **F** ger `unknown charge status` där; peka evcc på A/B/C och använd `twc link ok` för bussfel.
 
 VIN publiceras som `twc vin`. HA-mallen har inget identify-fält; använd evcc `vehicles.identifiers` eller custom charger `identify`.
 
-Lastbalans: evcc skriver `evcc offered current` (0 = stopp, ≥6 A = tak). Director klampar mot `cap_*`. Om evcc slutar skriva i 60 s sänks session till 0 A (`td evcc watchdog ok` blir av).
+Lastbalans: evcc skriver **`evcc offered current`** (`setMaxCurrent`), inte `twc available current` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*`. Om evcc slutar skriva i 60 s sänks session till 0 A (`td evcc watchdog ok` blir av).
 
 ## Utveckling
 
@@ -161,7 +168,9 @@ twc-director/
 │   ├── twc_*.c / twc_*.h        # C-protokollbibliotek (SLIP + TWC)
 │   └── PROTOCOL.md
 ├── .github/workflows/ci.yml     # Kompilerar mot ESPHome 2026.7.3 + latest
-├── tesla-director.yaml          # Exempel-firmwareconfig
+├── tesla-director.yaml          # Lab-exempel (två slots, evcc-entiteter, MAX485 GPIO18)
+├── tesla-director-safe.yaml     # Produktion: ingen web_server
+├── docs/SECURITY.md
 ├── secrets.yaml.example
 └── README.md
 ```

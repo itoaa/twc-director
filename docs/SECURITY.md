@@ -14,7 +14,8 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 | Contactor switch | Requires **master mode** and EVSE **enabled**; no optimistic UI. |
 | Contactor UI state | Follows bus-inferred current (`session > 0.1 A`), not the last click. |
 | Master OFF | Fail-safe: set session 0 A, best-effort open contactors, then stop TX. |
-| Boot | Does **not** auto-enable master mode. |
+| Boot | Does **not** auto-enable master mode. evcc offered current starts at 0 A. |
+| evcc watchdog | Unused `evcc offered current` / `evcc charge enable` for 60 s forces session 0 A. |
 | Web UI | Prefer **no** `web_server` in production (`tesla-director-safe.yaml`). |
 
 ## Recommended deployment

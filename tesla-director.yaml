@@ -22,7 +22,7 @@ esphome:
     then:
       - output.turn_on: tcan485_boost_en        # GPIO16, 5V boost power
       - output.turn_on: tcan485_rs485_shutdown  # GPIO19, shutdown disable (HIGH = enable)
-      - output.turn_on: tcan485_rs485_re        # GPIO17, receiver enable
+      - output.turn_on: tcan485_rs485_re        # GPIO17, MAX13487E receive enable (inte MAX485)
       - delay: 100ms                            # Let RS-485 transceiver stabilize
       # Safety: do NOT auto-enable master mode. Turn on "td master mode" in HA
       # only when the bus is ready. evcc offered current stays 0 until evcc writes.

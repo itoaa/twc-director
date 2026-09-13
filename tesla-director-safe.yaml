@@ -28,7 +28,7 @@ esphome:
     then:
       - output.turn_on: tcan485_boost_en
       - output.turn_on: tcan485_rs485_shutdown
-      - output.turn_on: tcan485_rs485_re
+      - output.turn_on: tcan485_rs485_re  # MAX13487E only; unused with MAX485 + flow_control_pin
       - delay: 100ms
       # Master mode stays OFF until you enable it in Home Assistant.
       - number.set:
