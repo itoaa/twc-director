@@ -123,6 +123,9 @@ def _ensure_named_child(evse_conf, key, suffix):
 # - auto-inject default names for nested children
 # - leaves explicit name/id configs untouched
 def _evse_preprocess(config):
+    # Always create the online sensor (schema used to require it; inject if omitted).
+    if CONF_TWC_ONLINE not in config:
+        config[CONF_TWC_ONLINE] = {}
     _ensure_named_child(config, CONF_TWC_ONLINE, "twc online")
     _ensure_named_child(config, CONF_FIRMWARE_VERSION, "twc firmware")
     _ensure_named_child(config, CONF_SERIAL_NUMBER, "twc serial")
@@ -229,7 +232,7 @@ CONFIG_SCHEMA = (
                         {
                             cv.Optional(CONF_ADDRESS): cv.hex_int,
                             cv.Required(CONF_NAME): cv.string,
-                            cv.Required(CONF_TWC_ONLINE): binary_sensor.binary_sensor_schema(),
+                            cv.Optional(CONF_TWC_ONLINE): binary_sensor.binary_sensor_schema(),
                             cv.Optional(CONF_FIRMWARE_VERSION): text_sensor.text_sensor_schema(
                                 icon="mdi:chip",
                             ),
@@ -455,7 +458,7 @@ async def to_code(config):
             addr = evse_conf.get(CONF_ADDRESS, 0)
             evse_name = evse_conf.get(CONF_NAME, f"TWC 0x{addr:04X}")
 
-            # Required online binary sensor (use schema-processed config directly)
+            # Online binary sensor (auto-injected if omitted in YAML)
             online_sensor = await binary_sensor.new_binary_sensor(
                 evse_conf[CONF_TWC_ONLINE]
             )
