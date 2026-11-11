@@ -1,15 +1,33 @@
 # tesla-director.yaml
+#
+# Reference config for the setup this firmware is developed on:
+#   Wemos D1 mini ESP32 + MAX485 module (3.3 V), 2x Gen2 Tesla Wall Connector (3-phase, Sweden)
+#
+#   ESP32 GPIO22 (TX) -> MAX485 DI
+#   ESP32 GPIO21 (RX) <- MAX485 RO
+#   ESP32 GPIO18      -> MAX485 DE + RE (tied together)  == twc_director: flow_control_pin
+#   MAX485 VCC = 3.3 V, GND shared with the Wall Connectors, A/B to TWC A/B (120 ohm at bus ends)
+#
+# Do NOT use GPIO1 / GPIO3 for RS-485: they are UART0 (USB serial / boot log) and the
+# USB-UART chip drives them, which corrupts frames (checksum errors).
+#
+# flow_control_pin belongs under twc_director:, NOT under uart:.
+#
+# Using a LilyGO T-CAN485 instead? See tesla-director-safe.yaml (it keeps the
+# GPIO16/17/19 power/enable outputs and omits flow_control_pin).
+#
+# Secrets: copy secrets.yaml.example to secrets.yaml and fill in real values.
 
 substitutions:
-  global_max_current: "48"      # cap: total circuit budget for all TWC
-  global_twc_max_current: "32"  # cap: per-TWC hardware/cable limit
-  master_addr: "0xF00D"         # TWC director address on RS-485
+  global_max_current: "15"      # cap: hela slingan (säkring minus marginal)
+  global_twc_max_current: "15"  # cap: per TWC (kabel/box)
+  master_addr: "0xF00D"
   twc_0_name: "Slot 0"
-  twc_0_initial_current: "15"
-  twc_0_max_current: "32"
+  twc_0_initial_current: "6"
+  twc_0_max_current: "15"
   twc_1_name: "Slot 1"
-  twc_1_initial_current: "15"
-  twc_1_max_current: "32"
+  twc_1_initial_current: "6"
+  twc_1_max_current: "15"
 
 esphome:
   name: tesla-director
@@ -20,12 +38,7 @@ esphome:
   on_boot:
     priority: 200
     then:
-      - output.turn_on: tcan485_boost_en        # GPIO16, 5V boost power
-      - output.turn_on: tcan485_rs485_shutdown  # GPIO19, shutdown disable (HIGH = enable)
-      - output.turn_on: tcan485_rs485_re        # GPIO17, MAX13487E receive enable (inte MAX485)
-      - delay: 100ms                            # Let RS-485 transceiver stabilize
-      # Safety: do NOT auto-enable master mode. Turn on "td master mode" in HA
-      # only when the bus is ready. evcc offered current stays 0 until evcc writes.
+      # Slå inte på master mode här. evcc_offered_current startar på 0 A.
       - number.set:
           id: twc_0_cap_max_current
           value: ${twc_0_max_current}
@@ -38,32 +51,27 @@ esphome:
       - number.set:
           id: twc_1_cap_initial_current
           value: ${twc_1_initial_current}
-  on_shutdown:
-    then:
-      - output.turn_off: tcan485_boost_en       # Disable GPIO16 before reset to avoid boot hang
 
 esp32:
   board: esp32dev
   framework:
     type: esp-idf
-  # ESPHome 2026.7+ uses native ESP-IDF toolchain by default.
-  # Uncomment if compile fails with the native toolchain:
-  # toolchain: platformio
 
-# Local component tree in this repo (preferred for development).
-# For HA Device Builder after push, switch to git source pointing at your fork:
-# external_components:
-#   - source:
-#       type: git
-#       url: https://github.com/itoaa/twc-director.git
 external_components:
   - source:
-      type: local
-      path: components
+      type: git
+      url: https://github.com/itoaa/twc-director.git
+      ref: main
+    components: [twc_director]
+    refresh: 0s
+  # Local checkout instead (development):
+  # - source:
+  #     type: local
+  #     path: components
 
 logger:
   level: VERBOSE
-  initial_level: INFO
+  initial_level: DEBUG
   baud_rate: 0
 
 api:
@@ -81,27 +89,45 @@ safe_mode:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Tesla-Director Fallback Hotspot"
     password: !secret wifi_hotspot_password
 
-# Web UI over plain HTTP only (ESPHome has no built-in HTTPS on the device).
-# Do NOT enable auth: on HTTP — Basic/Digest credentials or challenges still
-# travel on an unencrypted channel; Basic even puts the password in Base64.
-# Prefer: no auth + trusted LAN / IoT VLAN, or terminate TLS at a reverse proxy
-# and put auth there. See README "Web UI security".
+# Produktion: ta bort web_server (se tesla-director-safe.yaml).
+# Aktivera aldrig auth: över vanlig HTTP, se README "Web UI security".
 web_server:
   port: 80
-  # auth:   # only if you terminate HTTPS in front of the device
-  #   type: digest
-  #   username: !secret web_username
-  #   password: !secret web_password
 
 captive_portal:
-    
-# UART on the RS-485 transceiver
+
+sensor:
+  - platform: uptime
+    name: "Uptime"
+
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi Signal"
+    update_interval: 60s
+
+text_sensor:
+  - platform: template
+    name: "WiFi Strength"
+    lambda: |-
+      if (id(wifi_signal_sensor).state > -55)  return {"Excellent"};
+      else if (id(wifi_signal_sensor).state > -70) return {"Good"};
+      else if (id(wifi_signal_sensor).state > -85) return {"OK"};
+      else return {"Weak"};
+    update_interval: 60s
+    icon: "mdi:wifi"
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    mac_address:
+      name: "MAC Address"
+
+# D1 mini ESP32 + MAX485: DI=GPIO22, RO=GPIO21, DE+RE=GPIO18, VCC=3,3 V
+# (no flow_control_pin here - it goes under twc_director:)
 uart:
   id: twc_uart
   tx_pin: GPIO22
@@ -110,32 +136,11 @@ uart:
   stop_bits: 1
   parity: NONE
 
-output:
-  # Boost power supply enable (BOOST_ENABLE_PIN 16)
-  - platform: gpio
-    id: tcan485_boost_en
-    pin: GPIO16
-
-  # MAX13487E shutdown pin (RS485_SHUTDOWN_PIN 19) - HIGH = enable
-  - platform: gpio
-    id: tcan485_rs485_shutdown
-    pin: GPIO19
-
-  # MAX13487E RE pin (RS485_RE_PIN 17) — HIGH = receive enable
-  - platform: gpio
-    id: tcan485_rs485_re
-    pin: GPIO17
-
-select:
-  - platform: logger
-    name: Tesla Director log level
-    disabled_by_default: true
-
 twc_director:
   id: twc_component
   uart_id: twc_uart
-  # MAX485: knyt DE och RE ihop och hit. HIGH=sänd, LOW=lyssna.
-  # MAX13487E/TCAN485: ta bort den här raden (auto-direction).
+  # MAX485: DE och RE ihopkopplade hit. HIGH = sänd, LOW = lyssna.
+  # Måste ligga här under twc_director:, inte under uart:.
   flow_control_pin: GPIO18
   addr: ${master_addr}
   global_max_current: ${global_max_current}
@@ -220,6 +225,7 @@ twc_director:
         name: "${twc_0_name} td contactor"
 
     - name: ${twc_1_name}
+      # samma nycklar som Slot 0, med twc_1_* id:n
       twc_online:
         name: "${twc_1_name} twc online"
       charge_status:
@@ -286,4 +292,3 @@ twc_director:
         name: "${twc_1_name} td bus enable"
       contactor:
         name: "${twc_1_name} td contactor"
-

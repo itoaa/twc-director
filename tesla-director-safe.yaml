@@ -26,10 +26,6 @@ esphome:
   on_boot:
     priority: 200
     then:
-      - output.turn_on: tcan485_boost_en
-      - output.turn_on: tcan485_rs485_shutdown
-      - output.turn_on: tcan485_rs485_re  # MAX13487E only; unused with MAX485 + flow_control_pin
-      - delay: 100ms
       # Master mode stays OFF until you enable it in Home Assistant.
       - number.set:
           id: twc_0_cap_max_current
@@ -43,9 +39,6 @@ esphome:
       - number.set:
           id: twc_1_cap_initial_current
           value: ${twc_1_initial_current}
-  on_shutdown:
-    then:
-      - output.turn_off: tcan485_boost_en
 
 esp32:
   board: esp32dev
@@ -89,6 +82,8 @@ wifi:
 # Captive portal remains for WiFi recovery only.
 captive_portal:
 
+# D1 mini ESP32 + MAX485 (3.3 V): DI=GPIO22, RO=GPIO21, DE+RE=GPIO18.
+# Never use GPIO1/GPIO3 (UART0 / USB chip) for RS-485.
 uart:
   id: twc_uart
   tx_pin: GPIO22
@@ -97,20 +92,10 @@ uart:
   stop_bits: 1
   parity: NONE
 
-output:
-  - platform: gpio
-    id: tcan485_boost_en
-    pin: GPIO16
-  - platform: gpio
-    id: tcan485_rs485_shutdown
-    pin: GPIO19
-  - platform: gpio
-    id: tcan485_rs485_re
-    pin: GPIO17
-
 twc_director:
   id: twc_component
   uart_id: twc_uart
+  # MAX485 DE+RE tied together. Belongs under twc_director:, not under uart:.
   flow_control_pin: GPIO18
   addr: ${master_addr}
   global_max_current: ${global_max_current}
