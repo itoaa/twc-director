@@ -288,3 +288,73 @@ Mer om 0x09 och mätramen finns i
 | evcc hittar inte entiteterna | Fel entity-id, enheten inte tillagd i HA, eller namn bytta i HA. Jämför med Utvecklarverktyg → Tillstånd. |
 
 Namnstandarden i övrigt beskrivs i [README](../README.md#namnstandard-för-entiteter).
+
+## Lathund
+
+Kopiera värdena rakt in i evcc. Etiketterna är de officiella engelska från
+evcc:s Home Assistant-mall, med YAML-nyckeln i parentes. Fält märkta
+**(ungefär)** är inte verifierade mot evcc:s gränssnitt (främst
+laddpunkten). Effekt, energi och L1–L3 kan ligga under avancerade
+alternativ.
+
+Anslutning till Home Assistant (`uri`, *Home Assistant URI*):
+`http://homeassistant.local:8123` (byt mot din egen HA-adress). Kör du
+evcc som Home Assistant-app: `http://supervisor/core`.
+
+Statusbokstäver från `state charge`: **A** frånkopplad, **B** ansluten,
+**C** laddar. **F** = fel / TWC offline (mappa inte till A/B/C). **D**
+och **E** används inte. evcc känner redan igen A/B/C, så *States for
+status A/B/C* (`statusA`/`statusB`/`statusC`) lämnas tomma om evcc inte
+frågar.
+
+### S22 Garage Ute (`0x8988`, `twc_1`)
+
+| Fält i evcc (en, YAML) | Värde |
+|------------------------|-------|
+| Home Assistant URI (`uri`) | `http://homeassistant.local:8123` (byt mot din HA-adress); som HA-app: `http://supervisor/core` |
+| Charging status sensor (`status`) | `sensor.tesla_director_s22_garage_ute_state_charge` |
+| Enabled status sensor (`enabled`) | `switch.tesla_director_s22_garage_ute_evcc_charging_enabled` |
+| Enable switch (`enable`) | `switch.tesla_director_s22_garage_ute_evcc_charging_enabled` |
+| Maximum current entity [A] (`setMaxCurrent`) | `number.tesla_director_s22_garage_ute_evcc_current_limit` |
+| Power entity (`power`) | `sensor.tesla_director_s22_garage_ute_meter_power` |
+| Energy entity (`energy`) | `sensor.tesla_director_s22_garage_ute_meter_energy_total` |
+| L1 current entity (`currentL1`) | `sensor.tesla_director_s22_garage_ute_meter_current_l1` |
+| L2 current entity (`currentL2`) | `sensor.tesla_director_s22_garage_ute_meter_current_l2` |
+| L3 current entity (`currentL3`) | `sensor.tesla_director_s22_garage_ute_meter_current_l3` |
+| L1 voltage entity (`voltageL1`) | `sensor.tesla_director_s22_garage_ute_meter_voltage_l1` |
+| L2 voltage entity (`voltageL2`) | `sensor.tesla_director_s22_garage_ute_meter_voltage_l2` |
+| L3 voltage entity (`voltageL3`) | `sensor.tesla_director_s22_garage_ute_meter_voltage_l3` |
+| States for status A (`statusA`) | `A` bara om evcc frågar, annars tomt. F = fel, D/E oanvända. |
+| States for status B (`statusB`) | `B` bara om evcc frågar, annars tomt. |
+| States for status C (`statusC`) | `C` bara om evcc frågar, annars tomt. |
+| Title (`title`) **(ungefär)** | S22 Garage Ute |
+| Charger (`charger`) **(ungefär)** | `twc_s22_garage_ute` |
+| Phases (`phases`) **(ungefär)** | `3` |
+| Min current (`mincurrent`) **(ungefär)** | `6` (6 A) |
+| Max current (`maxcurrent`) **(ungefär)** | `15` (15 A) |
+
+### S22 Garage Inne (`0x9983`, `twc_0`)
+
+| Fält i evcc (en, YAML) | Värde |
+|------------------------|-------|
+| Home Assistant URI (`uri`) | `http://homeassistant.local:8123` (byt mot din HA-adress); som HA-app: `http://supervisor/core` |
+| Charging status sensor (`status`) | `sensor.tesla_director_s22_garage_inne_state_charge` |
+| Enabled status sensor (`enabled`) | `switch.tesla_director_s22_garage_inne_evcc_charging_enabled` |
+| Enable switch (`enable`) | `switch.tesla_director_s22_garage_inne_evcc_charging_enabled` |
+| Maximum current entity [A] (`setMaxCurrent`) | `number.tesla_director_s22_garage_inne_evcc_current_limit` |
+| Power entity (`power`) | `sensor.tesla_director_s22_garage_inne_meter_power` |
+| Energy entity (`energy`) | `sensor.tesla_director_s22_garage_inne_meter_energy_total` |
+| L1 current entity (`currentL1`) | `sensor.tesla_director_s22_garage_inne_meter_current_l1` |
+| L2 current entity (`currentL2`) | `sensor.tesla_director_s22_garage_inne_meter_current_l2` |
+| L3 current entity (`currentL3`) | `sensor.tesla_director_s22_garage_inne_meter_current_l3` |
+| L1 voltage entity (`voltageL1`) | `sensor.tesla_director_s22_garage_inne_meter_voltage_l1` |
+| L2 voltage entity (`voltageL2`) | `sensor.tesla_director_s22_garage_inne_meter_voltage_l2` |
+| L3 voltage entity (`voltageL3`) | `sensor.tesla_director_s22_garage_inne_meter_voltage_l3` |
+| States for status A (`statusA`) | `A` bara om evcc frågar, annars tomt. F = fel, D/E oanvända. |
+| States for status B (`statusB`) | `B` bara om evcc frågar, annars tomt. |
+| States for status C (`statusC`) | `C` bara om evcc frågar, annars tomt. |
+| Title (`title`) **(ungefär)** | S22 Garage Inne |
+| Charger (`charger`) **(ungefär)** | `twc_s22_garage_inne` |
+| Phases (`phases`) **(ungefär)** | `3` |
+| Min current (`mincurrent`) **(ungefär)** | `6` (6 A) |
+| Max current (`maxcurrent`) **(ungefär)** | `15` (15 A) |
