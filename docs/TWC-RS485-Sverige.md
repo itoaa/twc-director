@@ -246,7 +246,7 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 1. evcc skriver `evcc offered current` (och `evcc charge enable`) i Home Assistant → ESPHome-entiteterna.
 2. Directorn klampar värdet mot `cap max current`, `cap global max` och 6 A-minimum (0 A = stopp), skalar vid behov ner så att summan över boxarna ryms i `global_max_current`, och får fram ett **applicerat** värde.
 3. Mastern skickar `FB E0 … 09 <ström>`. Så länge boxen laddar skickas `09` om när boxens rapporterade `avail` skiljer sig > 0,25 A från det applicerade värdet (högst var 3:e sekund, efter tre försök var 10:e sekund) samt som uppdatering var 10:e sekund.
-4. **evcc-watchdog:** skriver evcc/HA inte `offered current` eller `charge enable` inom **60 s** sätts börvärdet till **0 A** (`td evcc watchdog ok` = OFF).
+4. **evcc-watchdog (valfri, AV som standard):** evcc skriver bara vid ändring, så en tidsgräns skulle avbryta en stabil laddning. Med `evcc_watchdog_timeout` satt (t.ex. `10min`) sätts börvärdet till **0 A** om evcc inte skrivit inom tiden (`td evcc watchdog ok` = OFF) och `evcc charge enable`/`evcc offered current` publiceras som AV/0 så att evcc skriver om dem.
 5. **Stopp:** 0 A skickas som `09` med `00 00` och upprepas så länge boxen laddar. Kontaktorerna öppnas med `FC B2` bara när master mode stängs av eller contactor-switchen används. Hur boxen/bilen reagerar på `09 0 A` (avbryter direkt eller sänker till minimum) är **ej verifierat** i loggarna.
 6. Laddstart: initial-strömmen (`05`, `cap initial current`) sätts oberoende av evcc. På slots med evcc-entiteter skriver Directorn inte längre över evcc:s värde med boxens egen ström vid laddstart.
 
@@ -262,7 +262,7 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 | Länk nere utan giltig ram | `LINK_TIMEOUT_MS` | 15 s |
 | Omsändning av `09` vid avvikelse | `TWC_SESSION_RESEND_INTERVAL_MS` | 3 s (3 försök) |
 | Uppdatering av `09` | `TWC_SESSION_REFRESH_INTERVAL_MS` | 10 s |
-| evcc-watchdog | `EVCC_WATCHDOG_TIMEOUT_MS` | 60 s |
+| evcc-watchdog | `evcc_watchdog_timeout` | 0 s (av) |
 | Max ström per enhet (säkerhetsklamp) | `TWC_MAX_DEVICE_CURRENT_A` | 32 A |
 
 ## 11. Felsökning

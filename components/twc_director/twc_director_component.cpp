@@ -177,6 +177,12 @@ void TWCDirectorComponent::setup() {
     if (evse.evcc_watchdog_ok) {
       evse.evcc_watchdog_ok->publish_state(true);
     }
+    // td bus enable: ON at boot (heartbeats to this TWC) so nothing must be set in HA.
+    if (evse.enable_switch) {
+      auto initial = evse.enable_switch->get_initial_state_with_restore_mode();
+      evse.enabled = initial.value_or(true);
+      evse.enable_switch->publish_state(evse.enabled);
+    }
     this->publish_charge_status_(evse, "F", "twc_offline");
     this->publish_binary_sensor_if_changed_(evse.charging, false);
   }
@@ -863,13 +869,25 @@ void TWCDirectorComponent::apply_evcc_session_(EvseEntry &evse) {
 
 void TWCDirectorComponent::update_evcc_watchdog_(uint32_t now) {
   for (auto &evse : this->evse_entries_) {
+    if (this->evcc_watchdog_timeout_ms_ == 0)
+      return;  // watchdog disabled (default)
     if (!evse.evcc_watchdog_armed || evse.evcc_watchdog_tripped)
       continue;
-    if (now - evse.last_evcc_write_ms < EVCC_WATCHDOG_TIMEOUT_MS)
+    if (now - evse.last_evcc_write_ms < this->evcc_watchdog_timeout_ms_)
       continue;
-    ESP_LOGW(TAG, "TWC 0x%04X: evcc watchdog timeout (%us) — session 0 A", evse.address,
-             static_cast<unsigned>(EVCC_WATCHDOG_TIMEOUT_MS / 1000U));
+    ESP_LOGW(TAG, "TWC 0x%04X: evcc watchdog timeout (%us) — session 0 A, charge enable OFF",
+             evse.address, static_cast<unsigned>(this->evcc_watchdog_timeout_ms_ / 1000U));
     evse.evcc_watchdog_tripped = true;
+    // Drop to "disabled" and tell evcc: its enabled-state then reads OFF, so evcc
+    // re-enables and rewrites the current on its next cycle.
+    evse.charge_enabled = false;
+    evse.offered_current_a = 0.0f;
+    if (evse.charge_enable_switch) {
+      evse.charge_enable_switch->publish_state(false);
+    }
+    if (evse.offered_current) {
+      evse.offered_current->publish_state(0.0f);
+    }
     this->publish_binary_sensor_if_changed_(evse.evcc_watchdog_ok, false);
     this->apply_evcc_session_(evse);
   }

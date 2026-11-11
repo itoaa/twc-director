@@ -59,6 +59,7 @@ TWCDirectorChargeEnableSwitch = twc_director_ns.class_(
 
 CONF_MASTER_MODE = "master_mode"
 CONF_RS485_DEBUG = "rs485_debug"
+CONF_EVCC_WATCHDOG_TIMEOUT = "evcc_watchdog_timeout"
 CONF_MASTER_ADDR = "addr"
 CONF_GLOBAL_MAX_CURRENT = "global_max_current"
 CONF_GLOBAL_MAX_CURRENT_CONTROL = "global_max_current_control"
@@ -211,6 +212,13 @@ CONFIG_SCHEMA = (
                     entity_category=ENTITY_CATEGORY_CONFIG,
                 ),
             ),
+            # evcc watchdog. 0s (default) = disabled. evcc's Home Assistant charger only
+            # writes enable/maxcurrent when they CHANGE (not periodically), so a short
+            # timeout would cut a steady charge. Set e.g. 300s only if something
+            # rewrites offered current / charge enable regularly.
+            cv.Optional(
+                CONF_EVCC_WATCHDOG_TIMEOUT, default="0s"
+            ): cv.positive_time_period_milliseconds,
             # MAX485 DE+RE (HIGH=TX, LOW=RX). Omit for MAX13487E auto-direction.
             cv.Optional(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
             cv.Required(CONF_MASTER_ADDR): cv.hex_int,
@@ -381,7 +389,7 @@ CONFIG_SCHEMA = (
                             cv.Optional(CONF_ENABLE): switch.switch_schema(
                                 TWCDirectorEnableSwitch,
                                 icon="mdi:power",
-                                default_restore_mode="RESTORE_DEFAULT_ON",
+                                default_restore_mode="ALWAYS_ON",
                                 entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                             ),
                             cv.Optional(CONF_CHARGE_STATUS): text_sensor.text_sensor_schema(
@@ -442,6 +450,8 @@ async def to_code(config):
     if CONF_EVSE_MAX_CURRENT_LIMIT in config:
         evse_max = config[CONF_EVSE_MAX_CURRENT_LIMIT]
         cg.add(var.set_evse_max_current_limit(evse_max))
+
+    cg.add(var.set_evcc_watchdog_timeout_ms(config[CONF_EVCC_WATCHDOG_TIMEOUT].total_milliseconds))
 
     if CONF_FLOW_CONTROL_PIN in config:
         pin = await gpio_pin_expression(config[CONF_FLOW_CONTROL_PIN])

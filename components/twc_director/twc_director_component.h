@@ -236,6 +236,9 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
     }
   }
 
+  // evcc watchdog timeout in ms; 0 = disabled (default).
+  void set_evcc_watchdog_timeout_ms(std::uint32_t ms) { this->evcc_watchdog_timeout_ms_ = ms; }
+
   // Optional "td rs485 debug" switch gating per-frame bus logging.
   void set_rs485_debug_switch(TWCDirectorRs485DebugSwitch *sw) {
     this->rs485_debug_switch_ = sw;
@@ -295,7 +298,6 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   static constexpr float MIN_CHARGE_CURRENT_A = 6.0f;
 
   // If evcc stops writing offered current / charge enable, drop to 0 A.
-  static constexpr std::uint32_t EVCC_WATCHDOG_TIMEOUT_MS = 60000U;
 
   // =========================================================================
   // TX Statistics
@@ -404,6 +406,7 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
  protected:
   TWCDirectorMasterModeSwitch *master_mode_switch_{nullptr};
   TWCDirectorRs485DebugSwitch *rs485_debug_switch_{nullptr};
+  std::uint32_t evcc_watchdog_timeout_ms_{0};
   binary_sensor::BinarySensor *link_ok_sensor_{nullptr};
   sensor::Sensor *charging_count_sensor_{nullptr};
 

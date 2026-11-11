@@ -15,7 +15,7 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 | Contactor UI state | Follows bus-inferred current (`session > 0.1 A`), not the last click. |
 | Master OFF | Fail-safe: set session 0 A, best-effort open contactors, then stop TX. |
 | Boot | Master mode is **ON at boot** (`restore_mode: ALWAYS_ON`) because the Wall Connectors need the master heartbeats to start. evcc offered current starts at 0 A and `evcc charge enable` OFF, so no current is offered until evcc writes. |
-| evcc watchdog | Unused `evcc offered current` / `evcc charge enable` for 60 s forces session 0 A. |
+| evcc watchdog | Optional (`evcc_watchdog_timeout`, default `0s` = off, because evcc writes only on change). When it trips, session 0 A and `evcc charge enable` / `evcc offered current` are published OFF / 0 so evcc re-syncs. |
 | Web UI | Prefer **no** `web_server` in production (`tesla-director-safe.yaml`). |
 
 ## Recommended deployment

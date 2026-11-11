@@ -10,9 +10,14 @@ substitutions:
   global_max_current: "32"      # cap: total circuit budget (amps)
   global_twc_max_current: "16"  # cap: per-TWC hardware/cable limit
   master_addr: "0xF00D"
+  # Wall Connector RS-485 addresses = last 4 digits of the serial (A20J0149983 -> 0x9983).
+  # Fixed so that Slot 0/1 (and evcc loadpoint 0/1) always map to the same box and the
+  # cap_* defaults below can be applied at boot. Find yours in the log: "TWC 0x....".
+  twc_0_address: "0x9983"
   twc_0_name: "Slot 0"
   twc_0_initial_current: "6"
   twc_0_max_current: "16"
+  twc_1_address: "0x8988"
   twc_1_name: "Slot 1"
   twc_1_initial_current: "6"
   twc_1_max_current: "16"
@@ -104,6 +109,9 @@ twc_director:
   uart_id: twc_uart
   # MAX485 DE+RE tied together. Belongs under twc_director:, not under uart:.
   flow_control_pin: GPIO18
+  # evcc's Home Assistant charger writes enable/maxcurrent only when they change, so the
+  # watchdog is OFF by default. Set e.g. 300s only if something rewrites them regularly.
+  evcc_watchdog_timeout: 0s
   # Switch in HA: per-frame RX:/TX:/"Sending E0" logs at INFO when ON (default OFF).
   rs485_debug:
     name: "td rs485 debug"
@@ -123,6 +131,7 @@ twc_director:
     name: "twc link ok"
   evse:
     - name: ${twc_0_name}
+      address: ${twc_0_address}
       twc_online:
         name: "${twc_0_name} twc online"
       charge_status:
@@ -191,6 +200,7 @@ twc_director:
         name: "${twc_0_name} td contactor"
 
     - name: ${twc_1_name}
+      address: ${twc_1_address}
       twc_online:
         name: "${twc_1_name} twc online"
       charge_status:

@@ -162,7 +162,7 @@ Entitetsnamn visar vem som **skriver** värdet:
 | `twc_` | Tesla-director från RS-485 | `twc charge status`, `twc vin`, `twc power` |
 | `evcc_` | evcc via Home Assistant | `evcc charge enable`, `evcc offered current` |
 | `cap_` | du / YAML, hårda tak | `cap max current`, `cap global max` |
-| `td_` | Tesla-director lokalt | `td master mode`, `td bus enable`, `td evcc watchdog ok` |
+| `td_` | Tesla-director lokalt (egna reglage/diagnostik; **inget evcc ska sätta**) | `td master mode`, `td bus enable`, `td contactor`, `td evcc watchdog ok`, `td rs485 debug` |
 
 ### Home Assistant → evcc
 
@@ -194,7 +194,79 @@ VIN publiceras som `twc vin`. HA-mallen har inget identify-fält; använd evcc `
 
 Lastbalans: evcc skriver **`evcc offered current`** (`setMaxCurrent`), inte `twc available current` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*` och `cap global max`.
 
-**evcc-watchdog (60 s):** evcc/HA måste skriva `evcc offered current` **eller** `evcc charge enable` minst var 60:e sekund. Annars löser watchdogen ut (`td evcc watchdog ok` = OFF) och sessionsströmmen sätts till **0 A**. Nästa skrivning nollställer watchdogen igen, men en minut senare löser den ut igen om ingen fortsätter skriva. evcc gör det normalt själv; testar du manuellt i HA, skriv om värdet inom en minut.
+**evcc-watchdog (valfri, AV som standard):** evcc skriver `evcc offered current` / `evcc charge enable` bara när värdet *ändras* (inte periodiskt). En tidsgräns skulle därför bryta en pågående laddning med konstant ström, så watchdogen är avstängd (`evcc_watchdog_timeout: 0s`). Sätt t.ex. `evcc_watchdog_timeout: 10min` under `twc_director:` om du ändå vill ha en dödmansgrepp. Löser den ut sätts strömmen till 0 A och `evcc charge enable` / `evcc offered current` publiceras som AV / 0, så att evcc ser det och skriver om sina värden (`td evcc watchdog ok` = OFF tills nästa skrivning). Vid omstart av ESP:n startar `evcc charge enable` AV och `evcc offered current` 0 A (säkert); evcc läser tillbaka `enabled` och skriver om rätt värde.
+
+### Fungerar direkt efter flash (inget i Home Assistant behöver ändras)
+
+Standardvärdena i `tesla-director.yaml` är satta så att evcc kan börja använda Director direkt:
+
+| Inställning | Värde efter flash |
+|-------------|-------------------|
+| `td master mode` | **ON** (`ALWAYS_ON`) |
+| `td bus enable` (per slot) | **ON** (`ALWAYS_ON`) |
+| `cap global max` | `global_max_current` (15 A), sätts i koden |
+| `cap max current` per slot | `twc_N_max_current` (15 A), sätts vid boot via `on_boot` |
+| `cap initial current` per slot | `twc_N_initial_current` (6 A), sätts vid boot via `on_boot` |
+| `evcc charge enable` | **OFF** tills evcc skriver |
+| `evcc offered current` | **0 A** tills evcc skriver |
+| `td rs485 debug` | OFF |
+| Slot → box | fast via `address:` (`twc_0_address`, `twc_1_address`) – ändra till dina boxars sista fyra serienummersiffror |
+
+**Entiteter evcc ska peka på** (per slot; ESPHome-enhet `tesla-director`, friendly name `Tesla-Director`, så blir entity_id `<domän>.tesla_director_<entitetsnamn med _>`; byter du namn i HA ändras id:t):
+
+| evcc-fält | Entitet (Slot 0) | Skrivs av |
+|-----------|------------------|-----------|
+| `status` | `sensor.tesla_director_slot_0_twc_charge_status` (A/B/C/F) | Director → evcc |
+| `enabled` | `switch.tesla_director_slot_0_evcc_charge_enable` | evcc (läser tillbaka) |
+| `enable` | `switch.tesla_director_slot_0_evcc_charge_enable` | evcc skriver |
+| `setMaxCurrent` (→ `maxcurrent`) | `number.tesla_director_slot_0_evcc_offered_current` | evcc skriver |
+| `power` | `sensor.tesla_director_slot_0_twc_power` | Director → evcc |
+| `energy` | `sensor.tesla_director_slot_0_twc_energy_total` (kWh) | Director → evcc |
+| `currentL1–L3` | `sensor.tesla_director_slot_0_twc_current_l1` … `_l3` | Director → evcc |
+| `voltageL1–L3` | `sensor.tesla_director_slot_0_twc_voltage_l1` … `_l3` | Director → evcc |
+
+Slot 1: byt `slot_0` mot `slot_1`. Exempel (`evcc.yaml`, byt URI mot din Home Assistant):
+
+```yaml
+chargers:
+  - name: twc_slot_0
+    type: template
+    template: homeassistant
+    uri: http://homeassistant.local:8123
+    status: sensor.tesla_director_slot_0_twc_charge_status
+    enabled: switch.tesla_director_slot_0_evcc_charge_enable
+    enable: switch.tesla_director_slot_0_evcc_charge_enable
+    setMaxCurrent: number.tesla_director_slot_0_evcc_offered_current
+    power: sensor.tesla_director_slot_0_twc_power
+    energy: sensor.tesla_director_slot_0_twc_energy_total
+    currentL1: sensor.tesla_director_slot_0_twc_current_l1
+    currentL2: sensor.tesla_director_slot_0_twc_current_l2
+    currentL3: sensor.tesla_director_slot_0_twc_current_l3
+    voltageL1: sensor.tesla_director_slot_0_twc_voltage_l1
+    voltageL2: sensor.tesla_director_slot_0_twc_voltage_l2
+    voltageL3: sensor.tesla_director_slot_0_twc_voltage_l3
+  # twc_slot_1: samma med slot_1
+
+loadpoints:
+  - title: Tesla Slot 0
+    charger: twc_slot_0
+    mode: pv
+    phases: 3
+    mincurrent: 6
+    maxcurrent: 15
+```
+
+> **Autentisering:** nyare evcc använder inte längre `token:` i YAML utan godkänner Home Assistant via OAuth i evcc:s webbgränssnitt (Konfiguration → Laddare → Home Assistant). Äldre evcc kräver `token: <long-lived access token>` (skapa i HA-profilen, lägg aldrig i git).
+
+**Vad är `td …`-entiteterna?** De är Directors egna reglage och diagnostik – **inte** värden som andra enheter ska skriva till Director, och evcc ska inte peka på dem:
+
+- `td master mode` – huvudbrytare för busmastern. ON = Director skickar heartbeats. OFF = fail-safe: 0 A, kontaktorer öppnas, sedan tyst.
+- `td bus enable` (per slot) – om Director pratar med just den boxen. ON som standard.
+- `td contactor` (per slot) – manuell kontaktorstyrning (FC B1/B2), endast i master mode; för felsökning.
+- `td evcc watchdog ok` – diagnostik: ON om evcc skrivit nyligen (alltid ON när watchdogen är avstängd).
+- `td rs485 debug` – slår på/av ramloggning (se ovan).
+
+Det som skrivs *till* Director är `evcc charge enable` och `evcc offered current` (av evcc) samt `cap_*` (hårda tak, sätts av YAML vid boot; justeras bara om du vill ha andra gränser).
 
 **Hur strömmen når Wall Connectorn:** när sessionsströmmen ändras skickar mastern ett `0x09`-kommando (”Setting limit”) i heartbeat-ramen. Tidigare skickades det bara en gång. Nu skickar mastern om det applicerade värdet så länge Wall Connectorn laddar och rapporterar en annan tillgänglig ström än den vi vill ha (>0,25 A skillnad, högst var 3:e sekund, därefter var 10:e sekund om boxen fortsätter rapportera något annat), samt som periodisk uppdatering var 10:e sekund. 0 A (evcc av / watchdog) skickas på samma sätt så länge boxen laddar. På slots med evcc-entiteter skriver laddstarten inte längre över evcc:s värde med boxens egen ström.
 
