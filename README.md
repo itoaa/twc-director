@@ -32,27 +32,62 @@ Komponenten agerar **TWC Director** (master) på RS-485-bussen och ger:
 
 ## Hårdvara
 
-1. **ESP32** (t.ex. ESP32-WROOM)
-2. **RS-485-transceiver** (MAX13487E, MAX485 eller liknande)
-3. **Tesla Gen2 Wall Connector(s)** med RS-485
+1. **ESP32** – referensuppsättningen är en **Wemos D1 mini ESP32**
+2. **RS-485-transceiver** – referensuppsättningen är ett **MAX485-kort på 3,3 V** (MAX13487E/T-CAN485 fungerar också)
+3. **Tesla Gen2 Wall Connector(s)** med RS-485 (i Sverige 3-fas, se [docs/TWC-RS485-Sverige.md](docs/TWC-RS485-Sverige.md))
 
-### Typisk inkoppling (exempel-YAML)
+### Inkoppling (D1 mini ESP32 + MAX485, matchar `tesla-director.yaml`)
 
-| ESP32 | RS-485 | Funktion |
-|-------|--------|----------|
-| GPIO22 | TX/DI | UART TX |
-| GPIO21 | RX/RO | UART RX |
-| GPIO18 | DE+RE | MAX485: knyt DE och RE hit (`flow_control_pin`). HIGH=sänd, LOW=lyssna |
-| GPIO16 | EN (boost) | Valfri 5V boost (TCAN485) |
-| GPIO19 | ~SHDN | HIGH = enable (TCAN485) |
-| GPIO17 | RE | MAX13487E: HIGH = receive enable. Används inte med MAX485 |
-| 3.3V / GND | VCC / GND | Ström |
+| ESP32 (D1 mini) | MAX485 | Funktion |
+|-----------------|--------|----------|
+| GPIO22 | DI | UART TX (`uart: tx_pin`) |
+| GPIO21 | RO | UART RX (`uart: rx_pin`) |
+| GPIO18 | DE + RE (hopknutna) | `twc_director: flow_control_pin`. HIGH = sänd, LOW = lyssna |
+| 3,3 V | VCC | MAX485 matas med **3,3 V** |
+| GND | GND | **Gemensam GND** med Wall Connectorerna |
 
-A/B på transceivern kopplas till TWC:ns RS-485-terminaler. UART: **9600 8N1**.
+A/B på transceivern kopplas till TWC:ns RS-485-terminaler (A↔A, B↔B). UART: **9600 8N1**. Sätt **120 Ω-terminering** i bussens ändar.
 
-**MAX485 (DI/DE/RE/RO):** knyt **DE och RE ihop** till `flow_control_pin` (GPIO18 i exempel-YAML). Koppla **inte** GPIO17 till MAX485-RE — den pinnen är för MAX13487E (aktiv hög) och har motsatt polaritet. GPIO16/19 är TCAN485-boost/shutdown och behövs inte på ett vanligt MAX485-kort.
+**Använd aldrig GPIO1 eller GPIO3** för RS-485. Det är UART0 (USB-serial/boot-logg) och USB-chippet driver dem – det gav checksummefel och tappade bitar i ramarna. `logger: baud_rate: 0` stänger av loggning på UART0.
 
-**MAX13487E / TCAN485:** utelämna `flow_control_pin` (auto-direction). Behåll GPIO16/17/19 enligt YAML.
+**`flow_control_pin` ska ligga under `twc_director:`, inte under `uart:`.** ESPHome:s `uart:` känner inte till nyckeln.
+
+```yaml
+uart:
+  id: twc_uart
+  tx_pin: GPIO22
+  rx_pin: GPIO21
+  baud_rate: 9600
+  stop_bits: 1
+  parity: NONE
+
+twc_director:
+  id: twc_component
+  uart_id: twc_uart
+  flow_control_pin: GPIO18   # MAX485 DE+RE
+```
+
+**MAX13487E / LilyGO T-CAN485** (auto-direction): utelämna `flow_control_pin` och lägg till de kortspecifika utgångarna som `tesla-director.yaml` *inte* har längre:
+
+```yaml
+esphome:
+  on_boot:
+    priority: 200
+    then:
+      - output.turn_on: tcan485_boost_en        # GPIO16
+      - output.turn_on: tcan485_rs485_shutdown  # GPIO19, HIGH = enable
+      - output.turn_on: tcan485_rs485_re        # GPIO17
+      - delay: 100ms
+  on_shutdown:
+    then:
+      - output.turn_off: tcan485_boost_en
+output:
+  - {platform: gpio, id: tcan485_boost_en, pin: GPIO16}
+  - {platform: gpio, id: tcan485_rs485_shutdown, pin: GPIO19}
+  - {platform: gpio, id: tcan485_rs485_re, pin: GPIO17}
+```
+
+Koppla inte GPIO17 till MAX485-RE (motsatt polaritet).
 
 ## Installation
 
@@ -72,7 +107,7 @@ esphome compile tesla-director.yaml
 esphome run tesla-director.yaml
 ```
 
-Exempel-YAML:n pekar som standard på **lokal** `components/`-katalog (bra för utveckling).
+`tesla-director.yaml` hämtar komponenten från GitHub (`ref: main`). För utveckling: byt till `type: local` / `path: components` (finns som kommenterat alternativ i filen).
 
 ### 2. Från Home Assistant / Device Builder
 
@@ -83,7 +118,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/itoaa/twc-director.git
-      ref: evcc-ha-adapter
+      ref: main
     components: [twc_director]
     refresh: 0s
 ```
@@ -113,6 +148,7 @@ Se `tesla-director.yaml` för full exempel-setup. Viktiga nycklar under `twc_dir
 | Nyckel | Betydelse |
 |--------|-----------|
 | `addr` | Director-adress på bussen (t.ex. `0xF00D`) |
+| `rs485_debug` | Valfri switch (`td rs485 debug`): ramloggar på INFO när ON, default OFF |
 | `flow_control_pin` | Valfri GPIO till MAX485 DE+RE (HIGH=sänd, LOW=lyssna). Utelämna för auto-direction |
 | `global_max_current` | Total maxström för alla TWC (`cap global max`) |
 | `global_twc_max_current` | Max per TWC |
@@ -156,7 +192,13 @@ chargers:
 
 VIN publiceras som `twc vin`. HA-mallen har inget identify-fält; använd evcc `vehicles.identifiers` eller custom charger `identify`.
 
-Lastbalans: evcc skriver **`evcc offered current`** (`setMaxCurrent`), inte `twc available current` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*`. Om evcc slutar skriva i 60 s sänks session till 0 A (`td evcc watchdog ok` blir av).
+Lastbalans: evcc skriver **`evcc offered current`** (`setMaxCurrent`), inte `twc available current` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*` och `cap global max`.
+
+**evcc-watchdog (60 s):** evcc/HA måste skriva `evcc offered current` **eller** `evcc charge enable` minst var 60:e sekund. Annars löser watchdogen ut (`td evcc watchdog ok` = OFF) och sessionsströmmen sätts till **0 A**. Nästa skrivning nollställer watchdogen igen, men en minut senare löser den ut igen om ingen fortsätter skriva. evcc gör det normalt själv; testar du manuellt i HA, skriv om värdet inom en minut.
+
+**Hur strömmen når Wall Connectorn:** när sessionsströmmen ändras skickar mastern ett `0x09`-kommando (”Setting limit”) i heartbeat-ramen. Tidigare skickades det bara en gång. Nu skickar mastern om det applicerade värdet så länge Wall Connectorn laddar och rapporterar en annan tillgänglig ström än den vi vill ha (>0,25 A skillnad, högst var 3:e sekund, därefter var 10:e sekund om boxen fortsätter rapportera något annat), samt som periodisk uppdatering var 10:e sekund. 0 A (evcc av / watchdog) skickas på samma sätt så länge boxen laddar. På slots med evcc-entiteter skriver laddstarten inte längre över evcc:s värde med boxens egen ström.
+
+**Mätvärden:** spänning/ström/effekt avkodas från 3-fas-mätramen (`FD EB`, 16-bitars spänningar och strömmar på byte 10–12). Tidigare visades L2-strömmen felaktigt som ~114 A. Se [PROTOCOL.md](components/twc_director/PROTOCOL.md) och [docs/TWC-RS485-Sverige.md](docs/TWC-RS485-Sverige.md).
 
 ## Utveckling
 
@@ -167,10 +209,12 @@ twc-director/
 │   ├── twc_director_component.*
 │   ├── twc_*.c / twc_*.h        # C-protokollbibliotek (SLIP + TWC)
 │   └── PROTOCOL.md
-├── .github/workflows/ci.yml     # Kompilerar mot ESPHome 2026.7.3 + latest
-├── tesla-director.yaml          # Lab-exempel (två slots, evcc-entiteter, MAX485 GPIO18)
-├── tesla-director-safe.yaml     # Produktion: ingen web_server
+├── tests/                       # Enhetstester för C-kärnan (make -C tests test)
+├── .github/workflows/ci.yml     # Enhetstester + kompilerar mot ESPHome 2026.7.3 + latest
+├── tesla-director.yaml          # Referens: D1 mini ESP32 + MAX485 (GPIO22/21/18), två slots, evcc
+├── tesla-director-safe.yaml     # Produktion: samma hårdvara, ingen web_server
 ├── docs/SECURITY.md
+├── docs/TWC-RS485-Sverige.md    # Hur svenska Gen2-boxar pratar RS-485 (alla ramar)
 ├── secrets.yaml.example
 └── README.md
 ```
@@ -194,6 +238,33 @@ Hämta upstream-ändringar:
 git fetch upstream
 git merge upstream/main   # eller rebase
 ```
+
+### Logga RS-485-ramar (runtime)
+
+Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är **av som standard**. Lägg till `rs485_debug:` under `twc_director:` så får du en switch i HA, **`td rs485 debug`** (default OFF, kommer ihåg läget efter omstart). ON = ramloggarna skrivs på **INFO**, OFF = de skrivs inte. `RX stats`/`TX stats` ligger kvar på DEBUG. Övrig loggnivå styrs med select-entiteten **Lognivå**:
+
+```yaml
+logger:
+  level: VERBOSE      # tak vid kompilering
+  initial_level: INFO
+  baud_rate: 0
+
+select:
+  - platform: logger
+    name: "Lognivå"
+
+twc_director:
+  rs485_debug:
+    name: "td rs485 debug"
+```
+
+### Tester
+
+```bash
+make -C tests test
+```
+
+Testerna kör C-kärnan på värddatorn: avkodning av riktiga `FD EB`-ramar och att `0x09` (sessionsström) skickas om / 0 A skickas / global max respekteras.
 
 ## Safety profile (P0/P1)
 
