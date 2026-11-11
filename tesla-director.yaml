@@ -37,6 +37,14 @@ substitutions:
 esphome:
   name: tesla-director
   friendly_name: Tesla-Director
+  # Each Wall Connector is its own Home Assistant device (ESPHome ≥ 2025.7).
+  # Per-box entity names are short ("evcc current limit"); the box name comes
+  # from the sub-device. Global entities stay on Tesla-Director.
+  devices:
+    - id: twc_0_device
+      name: ${twc_0_name}
+    - id: twc_1_device
+      name: ${twc_1_name}
   project:
     name: "twc-director.Tesla Wall Connector Director"
     version: "v0.3.0"
@@ -177,139 +185,141 @@ twc_director:
   evse:
     - name: ${twc_0_name}
       address: ${twc_0_address}
+      device_id: twc_0_device
       twc_online:
-        name: "${twc_0_name} state online"
+        name: "state online"
       charge_status:
-        name: "${twc_0_name} state charge"
+        name: "state charge"
       charge_status_text:
-        name: "${twc_0_name} state charge text"
+        name: "state charge text"
       charging:
-        name: "${twc_0_name} state charging"
+        name: "state charging"
       power:
-        name: "${twc_0_name} meter power"
+        name: "meter power"
       meter_current_phase_a:
-        name: "${twc_0_name} meter current L1"
+        name: "meter current L1"
       meter_current_phase_b:
-        name: "${twc_0_name} meter current L2"
+        name: "meter current L2"
       meter_current_phase_c:
-        name: "${twc_0_name} meter current L3"
+        name: "meter current L3"
       meter_voltage_phase_a:
-        name: "${twc_0_name} meter voltage L1"
+        name: "meter voltage L1"
       meter_voltage_phase_b:
-        name: "${twc_0_name} meter voltage L2"
+        name: "meter voltage L2"
       meter_voltage_phase_c:
-        name: "${twc_0_name} meter voltage L3"
+        name: "meter voltage L3"
       meter_energy_total:
-        name: "${twc_0_name} meter energy total"
+        name: "meter energy total"
       meter_energy_session:
-        name: "${twc_0_name} meter energy session"
+        name: "meter energy session"
       vehicle_connected:
-        name: "${twc_0_name} state car connected"
+        name: "state car connected"
       vehicle_vin:
-        name: "${twc_0_name} state VIN"
+        name: "state VIN"
       firmware_version:
-        name: "${twc_0_name} info firmware"
+        name: "info firmware"
       serial_number:
-        name: "${twc_0_name} info serial number"
+        name: "info serial number"
       mode:
-        name: "${twc_0_name} state mode"
+        name: "state mode"
       status_text:
-        name: "${twc_0_name} diag state raw"
+        name: "diag state raw"
       status_log:
-        name: "${twc_0_name} diag state log"
+        name: "diag state log"
       contactor_status:
-        name: "${twc_0_name} state contactor closed"
+        name: "state contactor closed"
       available_current_sensor:
-        name: "${twc_0_name} diag current offered by box"
+        name: "diag current offered by box"
       max_current_sensor:
-        name: "${twc_0_name} diag max current reported by box"
+        name: "diag max current reported by box"
       session_current_sensor:
-        name: "${twc_0_name} diag current setpoint sent"
+        name: "diag current setpoint sent"
       charge_enable:
         id: twc_0_evcc_charge_enable
-        name: "${twc_0_name} evcc charging enabled"
+        name: "evcc charging enabled"
       offered_current:
         id: twc_0_evcc_offered_current
-        name: "${twc_0_name} evcc current limit"
+        name: "evcc current limit"
       evcc_watchdog_ok:
-        name: "${twc_0_name} diag watchdog ok"
+        name: "diag watchdog ok"
       max_current:
         id: twc_0_cap_max_current
-        name: "${twc_0_name} limit max current"
+        name: "limit max current"
       initial_current:
         id: twc_0_cap_initial_current
-        name: "${twc_0_name} local start current"
+        name: "local start current"
       enable:
-        name: "${twc_0_name} system bus enabled"
+        name: "system bus enabled"
       contactor:
-        name: "${twc_0_name} diag contactor"
+        name: "diag contactor"
 
     - name: ${twc_1_name}
       address: ${twc_1_address}
+      device_id: twc_1_device
       # same keys as twc_0, med twc_1_* id:n
       twc_online:
-        name: "${twc_1_name} state online"
+        name: "state online"
       charge_status:
-        name: "${twc_1_name} state charge"
+        name: "state charge"
       charge_status_text:
-        name: "${twc_1_name} state charge text"
+        name: "state charge text"
       charging:
-        name: "${twc_1_name} state charging"
+        name: "state charging"
       power:
-        name: "${twc_1_name} meter power"
+        name: "meter power"
       meter_current_phase_a:
-        name: "${twc_1_name} meter current L1"
+        name: "meter current L1"
       meter_current_phase_b:
-        name: "${twc_1_name} meter current L2"
+        name: "meter current L2"
       meter_current_phase_c:
-        name: "${twc_1_name} meter current L3"
+        name: "meter current L3"
       meter_voltage_phase_a:
-        name: "${twc_1_name} meter voltage L1"
+        name: "meter voltage L1"
       meter_voltage_phase_b:
-        name: "${twc_1_name} meter voltage L2"
+        name: "meter voltage L2"
       meter_voltage_phase_c:
-        name: "${twc_1_name} meter voltage L3"
+        name: "meter voltage L3"
       meter_energy_total:
-        name: "${twc_1_name} meter energy total"
+        name: "meter energy total"
       meter_energy_session:
-        name: "${twc_1_name} meter energy session"
+        name: "meter energy session"
       vehicle_connected:
-        name: "${twc_1_name} state car connected"
+        name: "state car connected"
       vehicle_vin:
-        name: "${twc_1_name} state VIN"
+        name: "state VIN"
       firmware_version:
-        name: "${twc_1_name} info firmware"
+        name: "info firmware"
       serial_number:
-        name: "${twc_1_name} info serial number"
+        name: "info serial number"
       mode:
-        name: "${twc_1_name} state mode"
+        name: "state mode"
       status_text:
-        name: "${twc_1_name} diag state raw"
+        name: "diag state raw"
       status_log:
-        name: "${twc_1_name} diag state log"
+        name: "diag state log"
       contactor_status:
-        name: "${twc_1_name} state contactor closed"
+        name: "state contactor closed"
       available_current_sensor:
-        name: "${twc_1_name} diag current offered by box"
+        name: "diag current offered by box"
       max_current_sensor:
-        name: "${twc_1_name} diag max current reported by box"
+        name: "diag max current reported by box"
       session_current_sensor:
-        name: "${twc_1_name} diag current setpoint sent"
+        name: "diag current setpoint sent"
       charge_enable:
         id: twc_1_evcc_charge_enable
-        name: "${twc_1_name} evcc charging enabled"
+        name: "evcc charging enabled"
       offered_current:
         id: twc_1_evcc_offered_current
-        name: "${twc_1_name} evcc current limit"
+        name: "evcc current limit"
       evcc_watchdog_ok:
-        name: "${twc_1_name} diag watchdog ok"
+        name: "diag watchdog ok"
       max_current:
         id: twc_1_cap_max_current
-        name: "${twc_1_name} limit max current"
+        name: "limit max current"
       initial_current:
         id: twc_1_cap_initial_current
-        name: "${twc_1_name} local start current"
+        name: "local start current"
       enable:
-        name: "${twc_1_name} system bus enabled"
+        name: "system bus enabled"
       contactor:
-        name: "${twc_1_name} diag contactor"
+        name: "diag contactor"

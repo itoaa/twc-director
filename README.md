@@ -157,7 +157,17 @@ Se `tesla-director.yaml` för full exempel-setup. Viktiga nycklar under `twc_dir
 
 ### Namnstandard för entiteter
 
-Alla entitetsnamn är på **engelska** och har formen `<slot-namn> <prefix> <namn>`. Slot-namnet kommer först så att entiteterna grupperas per box. Home Assistant visar enhetsnamnet (`Tesla-Director`) separat och bygger entity_id som `<domän>.tesla_director_<slot>_<prefix>_<namn>` (gemener, understreck). Entiteter som gäller hela Director saknar slot-namn (t.ex. `system master mode`).
+Varje Wall Connector är en **egen enhet i Home Assistant** (ESPHome-underenhet, `esphome.devices` + `device_id`, kräver ESPHome ≥ 2025.7). I referens-YAML:n:
+
+| HA-enhet | Källa | Vad som ligger där |
+|----------|-------|--------------------|
+| **Tesla-Director** | huvudkortet | globala entiteter: `system master mode`, `system link ok`, `system charging count`, `limit global max current`, `diag rs485 logging`, `diag log level`, wifi/uptime m.m. |
+| **S22 Garage Inne** | `twc_0_device` (`twc_0`, `0x9983`) | alla boxentiteter för Inne |
+| **S22 Garage Ute** | `twc_1_device` (`twc_1`, `0x8988`) | alla boxentiteter för Ute |
+
+Boxnamnen kommer från substitutionerna `twc_0_name` / `twc_1_name`. I evse-blocket räcker `device_id: twc_0_device` — komponenten kopierar det till alla barn.
+
+Entitetsnamnen är på **engelska** och har formen `<prefix> <namn>` (betydelsen först, utan boxnamn), t.ex. `evcc current limit`, `meter power`, `state charge`. Home Assistant visar dem som ”S22 Garage Ute evcc current limit” eftersom integrationen använder `has_entity_name`. Globala entiteter på Tesla-Director saknar boxprefix redan från början (t.ex. `system master mode`).
 
 | Prefix | Betydelse | Skrivs av | Kategori i HA | Exempel |
 |--------|-----------|-----------|---------------|---------|
@@ -170,9 +180,11 @@ Alla entitetsnamn är på **engelska** och har formen `<slot-namn> <prefix> <nam
 | `diag` | felsökning | Director / du | diagnostic | `diag contactor`, `diag rs485 logging`, `diag watchdog ok`, `diag state raw`, `diag state log`, `diag current offered by box`, `diag current setpoint sent`, `diag max current reported by box`, `diag log level` |
 | `info` | identitet | Director (RS-485) | diagnostic | `info serial number`, `info firmware` |
 
-Regler: **evcc-entiteter är aldrig `diag`/`config`** (de ska synas som vanliga entiteter). Standardnamnen sätts i komponenten (`_ensure_named_child` i `__init__.py`) och YAML-filerna använder samma namn. Boxarnas slot-namn styrs av substitutionerna `twc_0_name` / `twc_1_name` och är bundna till RS-485-adressen via `twc_N_address`.
+Regler: **evcc-entiteter är aldrig `diag`/`config`** (de ska synas som vanliga entiteter). Standardnamnen sätts i komponenten (`_ensure_named_child` i `__init__.py`) och YAML-filerna använder samma namn. Boxarnas enhetsnamn styrs av `twc_0_name` / `twc_1_name` och är bundna till RS-485-adressen via `twc_N_address`.
 
-> **Byter du namn på en befintlig installation** skapar ESPHome nya entiteter (unique_id följer namnet). Ta bort de gamla (nu `unavailable`) under Inställningar → Enheter → Tesla-Director, annars kan nya entity_id få suffix `_2`.
+**Entity-id (härlett, inte avläst från en flashad enhet):** Home Assistant:s ESPHome-integration sätter `has_entity_name` och kopplar boxentiteterna till underenheten. Entity-id blir då `<domän>.<enhetsslug>_<entitetsslug>`. För enheten ”S22 Garage Ute” och entiteten ”evcc current limit” blir det `number.s22_garage_ute_evcc_current_limit`. Samma mönster finns i HA:s egna tester (enhet ”Motion Sensor” + entitet ”Motion” → `binary_sensor.motion_sensor_motion`). ESPHome:s `object_id` är bara det sanerade entitetsnamnet (`evcc_current_limit`); två boxar med samma namn krockar inte eftersom unique_id får suffix `@device_id`. Globala entiteter på huvudkortet blir t.ex. `switch.tesla_director_system_master_mode`. Byter du namn på enheten i HA ändras nya entity-id.
+
+> **Migrering:** den här ändringen ger **nya** entiteter (nytt namn och ny unique_id). Ta bort de gamla, otillgängliga under Tesla-Director (och ev. de nya underenheterna om något fått suffix `_2`). Uppdatera evcc:s fält till de nya id:na, se [docs/evcc-setup.md](docs/evcc-setup.md).
 
 ### Home Assistant → evcc
 
@@ -205,17 +217,17 @@ Standardvärdena i `tesla-director.yaml` är satta så att evcc kan börja anvä
 | `diag rs485 logging` | OFF |
 | Box → RS-485-adress | fast via `address:` (`twc_0_address` = `0x9983` = ”S22 Garage Inne”, `twc_1_address` = `0x8988` = ”S22 Garage Ute”) – ändra till dina boxars sista fyra serienummersiffror |
 
-**Entiteter evcc ska peka på** (per box; exemplet använder slot-namnet `S22 Garage Inne` → `s22_garage_inne`, enhetsnamn `Tesla-Director`; byter du namn i HA ändras id:t):
+**Entiteter evcc ska peka på** (per box; id:na är **härledda**, se ovan; byter du namn i HA ändras de):
 
 | evcc-fält | Entitet | Riktning |
 |-----------|---------|----------|
-| `status` | `sensor.tesla_director_s22_garage_inne_state_charge` (A/B/C/F) | Director → evcc |
-| `enabled` och `enable` | `switch.tesla_director_s22_garage_inne_evcc_charging_enabled` | evcc skriver, läser tillbaka |
-| `setMaxCurrent` (→ `maxcurrent`) | `number.tesla_director_s22_garage_inne_evcc_current_limit` | evcc skriver |
-| `power` | `sensor.tesla_director_s22_garage_inne_meter_power` | Director → evcc |
-| `energy` | `sensor.tesla_director_s22_garage_inne_meter_energy_total` (kWh) | Director → evcc |
-| `currentL1–L3` | `sensor.tesla_director_s22_garage_inne_meter_current_l1` … `_l3` | Director → evcc |
-| `voltageL1–L3` | `sensor.tesla_director_s22_garage_inne_meter_voltage_l1` … `_l3` | Director → evcc |
+| `status` | `sensor.s22_garage_inne_state_charge` (A/B/C/F) | Director → evcc |
+| `enabled` och `enable` | `switch.s22_garage_inne_evcc_charging_enabled` | evcc skriver, läser tillbaka |
+| `setMaxCurrent` (→ `maxcurrent`) | `number.s22_garage_inne_evcc_current_limit` | evcc skriver |
+| `power` | `sensor.s22_garage_inne_meter_power` | Director → evcc |
+| `energy` | `sensor.s22_garage_inne_meter_energy_total` (kWh) | Director → evcc |
+| `currentL1–L3` | `sensor.s22_garage_inne_meter_current_l1` … `_l3` | Director → evcc |
+| `voltageL1–L3` | `sensor.s22_garage_inne_meter_voltage_l1` … `_l3` | Director → evcc |
 
 Den andra boxen: byt `s22_garage_inne` mot `s22_garage_ute`. Komplett exempel med båda boxarna, OAuth-beskrivning och `token:`-platshållare för äldre evcc: [examples/evcc.yaml](examples/evcc.yaml). Hur du sätter upp det i evcc:s webbgränssnitt eller som fil i HA-tillägget står i [docs/evcc-setup.md](docs/evcc-setup.md).
 

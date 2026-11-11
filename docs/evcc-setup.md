@@ -14,10 +14,12 @@ Officiell evcc-dokumentation: [Home Assistant i evcc](https://docs.evcc.io/en/sm
 
 1. **Director är flashad** med aktuell `tesla-director.yaml` (eller en fil
    som använder samma entitetsnamn och inte själv skriver över dem med
-   `name:`). Enhetens `friendly_name` är **Tesla-Director**, ESPHome-namnet
-   är `tesla-director`.
-2. **ESPHome-enheten är tillagd i Home Assistant** och entiteterna är
-   tillgängliga.
+   `name:`). Huvudenheten heter **Tesla-Director** (ESPHome-namn
+   `tesla-director`). Varje box är en egen underenhet i HA: **S22 Garage
+   Inne** och **S22 Garage Ute**. Per-box-entiteter heter bara
+   `<prefix> <namn>`, t.ex. `evcc current limit`.
+2. **ESPHome-enheten är tillagd i Home Assistant** och både huvudenheten
+   och de två boxenheterna syns, med tillgängliga entiteter.
 3. Boxarna i referens-YAML:n är bundna till RS-485-adressen:
 
    | Slot | Namn | Adress | Serie (exempel) |
@@ -28,34 +30,37 @@ Officiell evcc-dokumentation: [Home Assistant i evcc](https://docs.evcc.io/en/sm
    Har du andra boxar: ändra `twc_N_address` / `twc_N_name` i YAML:n och
    byt entity-id:n i evcc så att de följer dina namn.
 
-**Hur entity_id bildas.** Home Assistant visar enhetsnamnet
-(`Tesla-Director`) separat. Entity-id blir
+**Hur entity_id bildas (härlett, inte avläst från en flashad enhet).**
+Home Assistant:s ESPHome-integration sätter `has_entity_name` och lägger
+boxentiteterna på underenheten. Entity-id blir
 
 ```text
-<domän>.tesla_director_<box-slug>_<prefix>_<namn>
+<domän>.<enhetsslug>_<entitetsslug>
 ```
 
-med gemener och understreck. `S22 Garage Inne` blir till exempel
-`s22_garage_inne`. Exempel:
+t.ex. enheten ”S22 Garage Ute” + entiteten ”evcc current limit” →
+`number.s22_garage_ute_evcc_current_limit`. Samma regel syns i HA:s tester
+(enhet ”Motion Sensor” + ”Motion” → `binary_sensor.motion_sensor_motion`).
+ESPHome:s `object_id` är bara det sanerade entitetsnamnet; unique_id får
+`@device_id` så två boxar med samma namn krockar inte. Exempel:
 
 ```text
-sensor.tesla_director_s22_garage_ute_state_charge
-switch.tesla_director_s22_garage_ute_evcc_charging_enabled
-number.tesla_director_s22_garage_ute_evcc_current_limit
+sensor.s22_garage_ute_state_charge
+switch.s22_garage_ute_evcc_charging_enabled
+number.s22_garage_ute_evcc_current_limit
 ```
 
-Entiteter som gäller hela Director (utan slot-namn), till exempel
-`system master mode`, får id utan box-slug:
-`switch.tesla_director_system_master_mode`.
+Globala entiteter på Tesla-Director, till exempel `system master mode`,
+blir `switch.tesla_director_system_master_mode`.
 
 **Byter du namn på enheten eller en entitet i Home Assistant ändras
 entity_id.** Då måste evcc peka på de nya id:na.
 
-**Ta bort gamla, otillgängliga entiteter** under Inställningar → Enheter
-och tjänster → Tesla-Director efter en namnändring. ESPHome:s unique_id
-följer namnet, så nya entiteter skapas vid sidan av de gamla. Lämnar du
-kvar de otillgängliga kan de nya id:na få suffix `_2`, och evcc hittar
-dem inte.
+**Migrering / ta bort gamla entiteter.** Den här namnstandarden ger nya
+entity-id (och ny unique_id). Ta bort de gamla, otillgängliga under
+Tesla-Director och under boxenheterna. Lämnar du kvar dem kan de nya
+id:na få suffix `_2`, och evcc hittar dem inte. Fyll i evcc:s fält på
+nytt med id:na i lathunden.
 
 **Standard efter boot** (inget behöver ändras i Home Assistant):
 
@@ -98,24 +103,24 @@ YAML-namnet om du är osäker.
 
 | evcc-fält (YAML) | Etikett i evcc (en / de) | Entitet (exempel: S22 Garage Ute) | Varför |
 |------------------|--------------------------|-----------------------------------|--------|
-| `status` | Charging status sensor / Ladestatus-Sensor | `sensor.tesla_director_s22_garage_ute_state_charge` | evcc behöver A/B/C för att veta om bilen är urkopplad, ansluten eller laddar. |
-| `enabled` | Enabled status sensor / Aktivierungsstatus-Sensor | `switch.tesla_director_s22_garage_ute_evcc_charging_enabled` | evcc läser om laddningen är tillåten (`on`/`off`). Samma switch som `enable`. |
-| `enable` | Enable switch / Aktivierungsschalter | `switch.tesla_director_s22_garage_ute_evcc_charging_enabled` | evcc slår på och av laddningen. Samma switch som `enabled`. |
-| `setMaxCurrent` | Maximum current entity \[A\] / Maximale Stromstärke-Entität \[A\] | `number.tesla_director_s22_garage_ute_evcc_current_limit` | evcc sätter lastbalanserat strömtak i ampere. 0 A = stopp, ≥ 6 A = tak. |
-| `power` | Power entity / Leistungsentität | `sensor.tesla_director_s22_garage_ute_meter_power` | Ögonblicklig effekt (W) från boxens mätare. |
-| `energy` | Energy entity / Energieentität | `sensor.tesla_director_s22_garage_ute_meter_energy_total` | Ackumulerad energi (kWh), totalräknaren — inte sessionsenergin. |
-| `currentL1` | L1 current entity / L1 Stromentität | `sensor.tesla_director_s22_garage_ute_meter_current_l1` | Fasström L1 (A). |
-| `currentL2` | L2 current entity / L2 Stromentität | `sensor.tesla_director_s22_garage_ute_meter_current_l2` | Fasström L2 (A). |
-| `currentL3` | L3 current entity / L3 Stromentität | `sensor.tesla_director_s22_garage_ute_meter_current_l3` | Fasström L3 (A). |
-| `voltageL1` | L1 voltage entity / L1 Spannungsentität | `sensor.tesla_director_s22_garage_ute_meter_voltage_l1` | Fasspänning L1 (V). |
-| `voltageL2` | L2 voltage entity / L2 Spannungsentität | `sensor.tesla_director_s22_garage_ute_meter_voltage_l2` | Fasspänning L2 (V). |
-| `voltageL3` | L3 voltage entity / L3 Spannungsentität | `sensor.tesla_director_s22_garage_ute_meter_voltage_l3` | Fasspänning L3 (V). |
+| `status` | Charging status sensor / Ladestatus-Sensor | `sensor.s22_garage_ute_state_charge` | evcc behöver A/B/C för att veta om bilen är urkopplad, ansluten eller laddar. |
+| `enabled` | Enabled status sensor / Aktivierungsstatus-Sensor | `switch.s22_garage_ute_evcc_charging_enabled` | evcc läser om laddningen är tillåten (`on`/`off`). Samma switch som `enable`. |
+| `enable` | Enable switch / Aktivierungsschalter | `switch.s22_garage_ute_evcc_charging_enabled` | evcc slår på och av laddningen. Samma switch som `enabled`. |
+| `setMaxCurrent` | Maximum current entity \[A\] / Maximale Stromstärke-Entität \[A\] | `number.s22_garage_ute_evcc_current_limit` | evcc sätter lastbalanserat strömtak i ampere. 0 A = stopp, ≥ 6 A = tak. |
+| `power` | Power entity / Leistungsentität | `sensor.s22_garage_ute_meter_power` | Ögonblicklig effekt (W) från boxens mätare. |
+| `energy` | Energy entity / Energieentität | `sensor.s22_garage_ute_meter_energy_total` | Ackumulerad energi (kWh), totalräknaren — inte sessionsenergin. |
+| `currentL1` | L1 current entity / L1 Stromentität | `sensor.s22_garage_ute_meter_current_l1` | Fasström L1 (A). |
+| `currentL2` | L2 current entity / L2 Stromentität | `sensor.s22_garage_ute_meter_current_l2` | Fasström L2 (A). |
+| `currentL3` | L3 current entity / L3 Stromentität | `sensor.s22_garage_ute_meter_current_l3` | Fasström L3 (A). |
+| `voltageL1` | L1 voltage entity / L1 Spannungsentität | `sensor.s22_garage_ute_meter_voltage_l1` | Fasspänning L1 (V). |
+| `voltageL2` | L2 voltage entity / L2 Spannungsentität | `sensor.s22_garage_ute_meter_voltage_l2` | Fasspänning L2 (V). |
+| `voltageL3` | L3 voltage entity / L3 Spannungsentität | `sensor.s22_garage_ute_meter_voltage_l3` | Fasspänning L3 (V). |
 
 För **S22 Garage Inne** byter du `s22_garage_ute` mot `s22_garage_inne` i
 alla id:n.
 
 Valfritt avancerat fält i nyare evcc: *Vehicle identification sensor*
-(`identify`) kan peka på `sensor.tesla_director_s22_garage_ute_state_vin`.
+(`identify`) kan peka på `sensor.s22_garage_ute_state_vin`.
 Det behövs inte för att starta och styra laddningen.
 
 ### Entiteter evcc inte ska använda
@@ -281,7 +286,7 @@ Mer om 0x09 och mätramen finns i
 |---------|----------------|
 | evcc står på *waiting* / väntar, trots inkopplad bil | `evcc charging enabled` är OFF tills evcc skriver (så är det vid boot). Kontrollera att evcc faktiskt slår på switchen och att `state charge` är B eller C, inte A eller F. |
 | Alltid 0 A, ingen laddning | `evcc current limit` startar på 0 A. evcc måste skriva ett tak ≥ 6 A. Kontrollera också att `diag current setpoint sent` följer, och med `diag rs485 logging` att 0x09 går ut på bussen. |
-| Entity-id slutar på `_2` | Gamla entiteter efter namnbyte är kvar som otillgängliga. Ta bort dem under enheten Tesla-Director och peka evcc på id:t *utan* `_2`. |
+| Entity-id slutar på `_2` | Gamla entiteter efter namnbyte är kvar som otillgängliga. Ta bort dem under Tesla-Director och under boxenheterna, och peka evcc på id:t *utan* `_2`. |
 | Fel box (Inne och Ute ihopblandade) | `twc_0` / `0x9983` är S22 Garage Inne, `twc_1` / `0x8988` är S22 Garage Ute. Kontrollera entity-id och slot mot serienumret i `info serial number`. |
 | Checksummefel, trasiga ramar (`Checksum FAILED`) | RO/DI sitter på GPIO1/GPIO3 (UART0 / USB). Flytta dem till GPIO21/GPIO22 och sätt `rx_pin: GPIO21`, `tx_pin: GPIO22`. |
 | Okänd laddstatus i evcc | `state charge` är troligen **F** (buss/box offline). evcc:s mall mappar A/B/C som standard. Kolla `system link ok` och RS-485. |
@@ -312,18 +317,18 @@ frågar.
 | Fält i evcc (en, YAML) | Värde |
 |------------------------|-------|
 | Home Assistant URI (`uri`) | `http://homeassistant.local:8123` (byt mot din HA-adress); som HA-app: `http://supervisor/core` |
-| Charging status sensor (`status`) | `sensor.tesla_director_s22_garage_ute_state_charge` |
-| Enabled status sensor (`enabled`) | `switch.tesla_director_s22_garage_ute_evcc_charging_enabled` |
-| Enable switch (`enable`) | `switch.tesla_director_s22_garage_ute_evcc_charging_enabled` |
-| Maximum current entity [A] (`setMaxCurrent`) | `number.tesla_director_s22_garage_ute_evcc_current_limit` |
-| Power entity (`power`) | `sensor.tesla_director_s22_garage_ute_meter_power` |
-| Energy entity (`energy`) | `sensor.tesla_director_s22_garage_ute_meter_energy_total` |
-| L1 current entity (`currentL1`) | `sensor.tesla_director_s22_garage_ute_meter_current_l1` |
-| L2 current entity (`currentL2`) | `sensor.tesla_director_s22_garage_ute_meter_current_l2` |
-| L3 current entity (`currentL3`) | `sensor.tesla_director_s22_garage_ute_meter_current_l3` |
-| L1 voltage entity (`voltageL1`) | `sensor.tesla_director_s22_garage_ute_meter_voltage_l1` |
-| L2 voltage entity (`voltageL2`) | `sensor.tesla_director_s22_garage_ute_meter_voltage_l2` |
-| L3 voltage entity (`voltageL3`) | `sensor.tesla_director_s22_garage_ute_meter_voltage_l3` |
+| Charging status sensor (`status`) | `sensor.s22_garage_ute_state_charge` |
+| Enabled status sensor (`enabled`) | `switch.s22_garage_ute_evcc_charging_enabled` |
+| Enable switch (`enable`) | `switch.s22_garage_ute_evcc_charging_enabled` |
+| Maximum current entity [A] (`setMaxCurrent`) | `number.s22_garage_ute_evcc_current_limit` |
+| Power entity (`power`) | `sensor.s22_garage_ute_meter_power` |
+| Energy entity (`energy`) | `sensor.s22_garage_ute_meter_energy_total` |
+| L1 current entity (`currentL1`) | `sensor.s22_garage_ute_meter_current_l1` |
+| L2 current entity (`currentL2`) | `sensor.s22_garage_ute_meter_current_l2` |
+| L3 current entity (`currentL3`) | `sensor.s22_garage_ute_meter_current_l3` |
+| L1 voltage entity (`voltageL1`) | `sensor.s22_garage_ute_meter_voltage_l1` |
+| L2 voltage entity (`voltageL2`) | `sensor.s22_garage_ute_meter_voltage_l2` |
+| L3 voltage entity (`voltageL3`) | `sensor.s22_garage_ute_meter_voltage_l3` |
 | States for status A (`statusA`) | `A` bara om evcc frågar, annars tomt. F = fel, D/E oanvända. |
 | States for status B (`statusB`) | `B` bara om evcc frågar, annars tomt. |
 | States for status C (`statusC`) | `C` bara om evcc frågar, annars tomt. |
@@ -338,18 +343,18 @@ frågar.
 | Fält i evcc (en, YAML) | Värde |
 |------------------------|-------|
 | Home Assistant URI (`uri`) | `http://homeassistant.local:8123` (byt mot din HA-adress); som HA-app: `http://supervisor/core` |
-| Charging status sensor (`status`) | `sensor.tesla_director_s22_garage_inne_state_charge` |
-| Enabled status sensor (`enabled`) | `switch.tesla_director_s22_garage_inne_evcc_charging_enabled` |
-| Enable switch (`enable`) | `switch.tesla_director_s22_garage_inne_evcc_charging_enabled` |
-| Maximum current entity [A] (`setMaxCurrent`) | `number.tesla_director_s22_garage_inne_evcc_current_limit` |
-| Power entity (`power`) | `sensor.tesla_director_s22_garage_inne_meter_power` |
-| Energy entity (`energy`) | `sensor.tesla_director_s22_garage_inne_meter_energy_total` |
-| L1 current entity (`currentL1`) | `sensor.tesla_director_s22_garage_inne_meter_current_l1` |
-| L2 current entity (`currentL2`) | `sensor.tesla_director_s22_garage_inne_meter_current_l2` |
-| L3 current entity (`currentL3`) | `sensor.tesla_director_s22_garage_inne_meter_current_l3` |
-| L1 voltage entity (`voltageL1`) | `sensor.tesla_director_s22_garage_inne_meter_voltage_l1` |
-| L2 voltage entity (`voltageL2`) | `sensor.tesla_director_s22_garage_inne_meter_voltage_l2` |
-| L3 voltage entity (`voltageL3`) | `sensor.tesla_director_s22_garage_inne_meter_voltage_l3` |
+| Charging status sensor (`status`) | `sensor.s22_garage_inne_state_charge` |
+| Enabled status sensor (`enabled`) | `switch.s22_garage_inne_evcc_charging_enabled` |
+| Enable switch (`enable`) | `switch.s22_garage_inne_evcc_charging_enabled` |
+| Maximum current entity [A] (`setMaxCurrent`) | `number.s22_garage_inne_evcc_current_limit` |
+| Power entity (`power`) | `sensor.s22_garage_inne_meter_power` |
+| Energy entity (`energy`) | `sensor.s22_garage_inne_meter_energy_total` |
+| L1 current entity (`currentL1`) | `sensor.s22_garage_inne_meter_current_l1` |
+| L2 current entity (`currentL2`) | `sensor.s22_garage_inne_meter_current_l2` |
+| L3 current entity (`currentL3`) | `sensor.s22_garage_inne_meter_current_l3` |
+| L1 voltage entity (`voltageL1`) | `sensor.s22_garage_inne_meter_voltage_l1` |
+| L2 voltage entity (`voltageL2`) | `sensor.s22_garage_inne_meter_voltage_l2` |
+| L3 voltage entity (`voltageL3`) | `sensor.s22_garage_inne_meter_voltage_l3` |
 | States for status A (`statusA`) | `A` bara om evcc frågar, annars tomt. F = fel, D/E oanvända. |
 | States for status B (`statusB`) | `B` bara om evcc frågar, annars tomt. |
 | States for status C (`statusC`) | `C` bara om evcc frågar, annars tomt. |

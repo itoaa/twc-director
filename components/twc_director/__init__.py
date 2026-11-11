@@ -10,6 +10,7 @@ from esphome.const import (
     CONF_ID,
     CONF_UART_ID,
     CONF_NAME,
+    CONF_DEVICE_ID,
     CONF_FLOW_CONTROL_PIN,
     UNIT_AMPERE,
     UNIT_VOLT,
@@ -108,6 +109,10 @@ CONF_EVCC_WATCHDOG_OK = "evcc_watchdog_ok"
 
 
 # --- Helper: Ensure named child for EVSE nested entities ---
+# Default names are short ("evcc current limit") — the Wall Connector's name
+# comes from the HA sub-device (evse device_id), not from a prefix on each
+# entity. device_id on the evse block is copied to every child unless the
+# child sets its own.
 def _ensure_named_child(evse_conf, key, suffix, category=None):
     if key not in evse_conf:
         return
@@ -118,15 +123,15 @@ def _ensure_named_child(evse_conf, key, suffix, category=None):
     if not isinstance(val, dict):
         evse_conf[key] = val
         return
+    # Propagate the evse sub-device to children (setup_entity honours device_id).
+    if CONF_DEVICE_ID in evse_conf and CONF_DEVICE_ID not in val:
+        val[CONF_DEVICE_ID] = evse_conf[CONF_DEVICE_ID]
     # Default entity category (diagnostic/config) unless the user set one explicitly.
     if category is not None and "entity_category" not in val:
         val["entity_category"] = category
-    # If already has a name, leave as is
-    if "name" in val:
-        evse_conf[key] = val
-        return
-    evse_name = evse_conf.get(CONF_NAME, "TWC")
-    val["name"] = f"{evse_name} {suffix}"
+    # If already has a name, leave as is (device_id already copied above).
+    if "name" not in val:
+        val["name"] = suffix
     evse_conf[key] = val
 
 # --- Helper: Preprocess EVSE config dict for default names ---
@@ -268,6 +273,8 @@ CONFIG_SCHEMA = (
                         {
                             cv.Optional(CONF_ADDRESS): cv.hex_int,
                             cv.Required(CONF_NAME): cv.string,
+                            # Optional HA sub-device; applied to all children by default.
+                            cv.Optional(CONF_DEVICE_ID): cv.sub_device_id,
                             cv.Optional(CONF_TWC_ONLINE): binary_sensor.binary_sensor_schema(),
                             cv.Optional(CONF_FIRMWARE_VERSION): text_sensor.text_sensor_schema(
                                 icon="mdi:chip",

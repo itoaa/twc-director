@@ -20,35 +20,35 @@ chargers:
     template: homeassistant
     uri: http://homeassistant.local:8123  # byt mot din egen Home Assistant-adress
     # token: <long-lived access token>  # endast äldre evcc; lägg aldrig i git
-    status: sensor.tesla_director_s22_garage_inne_state_charge
-    enabled: switch.tesla_director_s22_garage_inne_evcc_charging_enabled
-    enable: switch.tesla_director_s22_garage_inne_evcc_charging_enabled
-    setMaxCurrent: number.tesla_director_s22_garage_inne_evcc_current_limit
-    power: sensor.tesla_director_s22_garage_inne_meter_power
-    energy: sensor.tesla_director_s22_garage_inne_meter_energy_total
-    currentL1: sensor.tesla_director_s22_garage_inne_meter_current_l1
-    currentL2: sensor.tesla_director_s22_garage_inne_meter_current_l2
-    currentL3: sensor.tesla_director_s22_garage_inne_meter_current_l3
-    voltageL1: sensor.tesla_director_s22_garage_inne_meter_voltage_l1
-    voltageL2: sensor.tesla_director_s22_garage_inne_meter_voltage_l2
-    voltageL3: sensor.tesla_director_s22_garage_inne_meter_voltage_l3
+    status: sensor.s22_garage_inne_state_charge
+    enabled: switch.s22_garage_inne_evcc_charging_enabled
+    enable: switch.s22_garage_inne_evcc_charging_enabled
+    setMaxCurrent: number.s22_garage_inne_evcc_current_limit
+    power: sensor.s22_garage_inne_meter_power
+    energy: sensor.s22_garage_inne_meter_energy_total
+    currentL1: sensor.s22_garage_inne_meter_current_l1
+    currentL2: sensor.s22_garage_inne_meter_current_l2
+    currentL3: sensor.s22_garage_inne_meter_current_l3
+    voltageL1: sensor.s22_garage_inne_meter_voltage_l1
+    voltageL2: sensor.s22_garage_inne_meter_voltage_l2
+    voltageL3: sensor.s22_garage_inne_meter_voltage_l3
   - name: twc_s22_garage_ute
     type: template
     template: homeassistant
     uri: http://homeassistant.local:8123  # byt mot din egen Home Assistant-adress
     # token: <long-lived access token>  # endast äldre evcc; lägg aldrig i git
-    status: sensor.tesla_director_s22_garage_ute_state_charge
-    enabled: switch.tesla_director_s22_garage_ute_evcc_charging_enabled
-    enable: switch.tesla_director_s22_garage_ute_evcc_charging_enabled
-    setMaxCurrent: number.tesla_director_s22_garage_ute_evcc_current_limit
-    power: sensor.tesla_director_s22_garage_ute_meter_power
-    energy: sensor.tesla_director_s22_garage_ute_meter_energy_total
-    currentL1: sensor.tesla_director_s22_garage_ute_meter_current_l1
-    currentL2: sensor.tesla_director_s22_garage_ute_meter_current_l2
-    currentL3: sensor.tesla_director_s22_garage_ute_meter_current_l3
-    voltageL1: sensor.tesla_director_s22_garage_ute_meter_voltage_l1
-    voltageL2: sensor.tesla_director_s22_garage_ute_meter_voltage_l2
-    voltageL3: sensor.tesla_director_s22_garage_ute_meter_voltage_l3
+    status: sensor.s22_garage_ute_state_charge
+    enabled: switch.s22_garage_ute_evcc_charging_enabled
+    enable: switch.s22_garage_ute_evcc_charging_enabled
+    setMaxCurrent: number.s22_garage_ute_evcc_current_limit
+    power: sensor.s22_garage_ute_meter_power
+    energy: sensor.s22_garage_ute_meter_energy_total
+    currentL1: sensor.s22_garage_ute_meter_current_l1
+    currentL2: sensor.s22_garage_ute_meter_current_l2
+    currentL3: sensor.s22_garage_ute_meter_current_l3
+    voltageL1: sensor.s22_garage_ute_meter_voltage_l1
+    voltageL2: sensor.s22_garage_ute_meter_voltage_l2
+    voltageL3: sensor.s22_garage_ute_meter_voltage_l3
 
 loadpoints:
   - title: S22 Garage Inne
