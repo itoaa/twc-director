@@ -134,7 +134,8 @@ typedef enum {
   TWC_LOG_WARNING = 1,
   TWC_LOG_INFO    = 2,
   TWC_LOG_DEBUG   = 3,
-  TWC_LOG_VERBOSE = 4
+  TWC_LOG_VERBOSE = 4,
+  TWC_LOG_FRAME   = 5   // Per-frame bus trace (gated by the component's rs485_debug switch)
 } twc_log_level_t;
 
 // Diagnostic log callback: called when core needs to log diagnostic information

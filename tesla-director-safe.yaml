@@ -56,8 +56,13 @@ external_components:
   #     ref: main
 
 logger:
-  level: INFO
-  baud_rate: 0
+  level: VERBOSE        # compile-time ceiling; change at runtime with the "Lognivå" select
+  initial_level: INFO
+  baud_rate: 0          # UART0 is not used for logging (keeps GPIO1/3 free)
+
+select:
+  - platform: logger
+    name: "Lognivå"
 
 api:
   encryption:
@@ -97,6 +102,9 @@ twc_director:
   uart_id: twc_uart
   # MAX485 DE+RE tied together. Belongs under twc_director:, not under uart:.
   flow_control_pin: GPIO18
+  # Switch in HA: per-frame RX:/TX:/"Sending E0" logs at INFO when ON (default OFF).
+  rs485_debug:
+    name: "td rs485 debug"
   addr: ${master_addr}
   global_max_current: ${global_max_current}
   global_twc_max_current: ${global_twc_max_current}

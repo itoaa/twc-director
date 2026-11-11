@@ -61,9 +61,16 @@ void autobind_callback_shim(uint16_t address,
 void log_callback_shim(twc_log_level_t level,
                        const char *message,
                        void *user_data) {
-  (void)user_data;  // Not needed for logging
-
   if (!message) return;
+
+  // Per-frame bus trace ("Sending E0 ..."): INFO when rs485_debug is ON, dropped when OFF.
+  if (level == TWC_LOG_FRAME) {
+    auto *self = static_cast<TWCDirectorComponent *>(user_data);
+    if (self != nullptr && self->rs485_debug_enabled()) {
+      ESP_LOGI(TAG, "%s", message);
+    }
+    return;
+  }
 
   // Map TWC log levels to ESPHome log levels
   switch (level) {
@@ -135,6 +142,12 @@ void TWCDirectorComponent::setup() {
   twc_core_set_negotiation_callback(&this->core_, &negotiation_callback_shim, this);
   twc_core_set_autobind_callback(&this->core_, &autobind_callback_shim, this);
   twc_core_set_log_callback(&this->core_, &log_callback_shim, this);
+
+  // Restore the rs485_debug switch (default OFF) so frame logging survives reboots.
+  if (this->rs485_debug_switch_ != nullptr) {
+    auto initial = this->rs485_debug_switch_->get_initial_state_with_restore_mode();
+    this->rs485_debug_switch_->publish_state(initial.value_or(false));
+  }
 
   // Initialize all EVSE slots as offline. evcc setpoints start at 0 / off
   // (do not restore last session — a garage fuse must not come back at 15 A).
@@ -267,9 +280,11 @@ void TWCDirectorComponent::handle_rx_frame_(const uint8_t *frame,
     return;
   }
 
-  char hex[3 * 256 + 1];
-  this->format_hex_(frame, len, hex, sizeof(hex));
-  ESP_LOGD(TAG, "RX: %s (len=%u)", hex, (unsigned)len);
+  if (this->rs485_debug_enabled()) {
+    char hex[3 * 256 + 1];
+    this->format_hex_(frame, len, hex, sizeof(hex));
+    ESP_LOGI(TAG, "RX: %s (len=%u)", hex, (unsigned)len);
+  }
 
   // Check for 2-byte broadcast messages (ride on SLIP but aren't TWC frames)
   uint8_t bc_hi = 0, bc_lo = 0;
@@ -313,9 +328,11 @@ void TWCDirectorComponent::handle_tx_frame_(const uint8_t *frame, size_t len) {
   }
 
   // Log unescaped frame
-  char hex[3 * 256 + 1];
-  this->format_hex_(frame, len, hex, sizeof(hex));
-  ESP_LOGD(TAG, "TX: %s", hex);
+  if (this->rs485_debug_enabled()) {
+    char hex[3 * 256 + 1];
+    this->format_hex_(frame, len, hex, sizeof(hex));
+    ESP_LOGI(TAG, "TX: %s", hex);
+  }
 
   // SLIP encode
   PendingTx pending;
@@ -1100,6 +1117,11 @@ void TWCDirectorContactorSwitch::write_state(bool state) {
 }
 
 void TWCDirectorMasterModeSwitch::write_state(bool state) {
+  this->publish_state(state);
+}
+
+void TWCDirectorRs485DebugSwitch::write_state(bool state) {
+  ESP_LOGI(TAG, "RS-485 frame logging %s", state ? "ON" : "OFF");
   this->publish_state(state);
 }
 

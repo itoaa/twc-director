@@ -54,6 +54,18 @@ class TWCDirectorMasterModeSwitch : public switch_::Switch {
   TWCDirectorComponent *parent_{nullptr};
 };
 
+// Runtime switch: when ON, per-frame RX:/TX:/"Sending E0" bus traces are logged
+// at INFO; when OFF they are suppressed. Default OFF, restored across reboots.
+class TWCDirectorRs485DebugSwitch : public switch_::Switch {
+ public:
+  void set_parent(TWCDirectorComponent *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+
+  TWCDirectorComponent *parent_{nullptr};
+};
+
 // Per-EVSE enable switch. When OFF, the TWC Director will not communicate with
 // this EVSE (no heartbeats, no current allocation). This is td_bus_enable —
 // not the evcc charge-enable path.
@@ -224,6 +236,18 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
     }
   }
 
+  // Optional "td rs485 debug" switch gating per-frame bus logging.
+  void set_rs485_debug_switch(TWCDirectorRs485DebugSwitch *sw) {
+    this->rs485_debug_switch_ = sw;
+    if (sw != nullptr) {
+      sw->set_parent(this);
+    }
+  }
+
+  bool rs485_debug_enabled() const {
+    return this->rs485_debug_switch_ != nullptr && this->rs485_debug_switch_->state;
+  }
+
   bool master_mode_enabled() const {
     return this->master_mode_switch_ != nullptr &&
            this->master_mode_switch_->state;
@@ -379,6 +403,7 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
 
  protected:
   TWCDirectorMasterModeSwitch *master_mode_switch_{nullptr};
+  TWCDirectorRs485DebugSwitch *rs485_debug_switch_{nullptr};
   binary_sensor::BinarySensor *link_ok_sensor_{nullptr};
   sensor::Sensor *charging_count_sensor_{nullptr};
 

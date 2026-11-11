@@ -38,6 +38,9 @@ TWCDirectorComponent = twc_director_ns.class_(
 TWCDirectorMasterModeSwitch = twc_director_ns.class_(
     "TWCDirectorMasterModeSwitch", switch.Switch
 )
+TWCDirectorRs485DebugSwitch = twc_director_ns.class_(
+    "TWCDirectorRs485DebugSwitch", switch.Switch
+)
 TWCDirectorContactorSwitch = twc_director_ns.class_(
     "TWCDirectorContactorSwitch", switch.Switch
 )
@@ -55,6 +58,7 @@ TWCDirectorChargeEnableSwitch = twc_director_ns.class_(
 )
 
 CONF_MASTER_MODE = "master_mode"
+CONF_RS485_DEBUG = "rs485_debug"
 CONF_MASTER_ADDR = "addr"
 CONF_GLOBAL_MAX_CURRENT = "global_max_current"
 CONF_GLOBAL_MAX_CURRENT_CONTROL = "global_max_current_control"
@@ -191,6 +195,16 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_MASTER_MODE): cv.All(
                 _with_default_name("td master mode"),
                 switch.switch_schema(TWCDirectorMasterModeSwitch),
+            ),
+            # Optional runtime switch: per-frame RX:/TX:/"Sending E0" logs at INFO when ON
+            cv.Optional(CONF_RS485_DEBUG): cv.All(
+                _with_default_name("td rs485 debug"),
+                switch.switch_schema(
+                    TWCDirectorRs485DebugSwitch,
+                    icon="mdi:bug",
+                    default_restore_mode="RESTORE_DEFAULT_OFF",
+                    entity_category=ENTITY_CATEGORY_CONFIG,
+                ),
             ),
             # MAX485 DE+RE (HIGH=TX, LOW=RX). Omit for MAX13487E auto-direction.
             cv.Optional(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
@@ -438,6 +452,11 @@ async def to_code(config):
         master_mode_conf = config[CONF_MASTER_MODE]
         master_mode_switch = await switch.new_switch(master_mode_conf)
     cg.add(var.set_master_mode_switch(master_mode_switch))
+
+    rs485_debug_switch = cg.nullptr
+    if CONF_RS485_DEBUG in config:
+        rs485_debug_switch = await switch.new_switch(config[CONF_RS485_DEBUG])
+    cg.add(var.set_rs485_debug_switch(rs485_debug_switch))
 
     # Optional global max current control number entity
     global_max_control = cg.nullptr

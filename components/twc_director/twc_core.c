@@ -767,7 +767,7 @@ static bool send_heartbeat(twc_core_t *core, uint32_t now_ms) {
       snprintf(msg, sizeof(msg),
                "Sending E0 to 0x%04X: state=0x%02X avail=%u deliv=%u",
                dev->address, charge_state, available_centiamps, delivered_centiamps);
-      core->log_cb(TWC_LOG_DEBUG, msg, core->log_user);
+      core->log_cb(TWC_LOG_FRAME, msg, core->log_user);
     }
 
     // Send
