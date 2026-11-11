@@ -224,10 +224,19 @@ void TWCDirectorComponent::loop() {
   static uint32_t last_stats_ms = 0;
   if (now - last_stats_ms > DECODER_STATS_INTERVAL_MS) {
     last_stats_ms = now;
-    ESP_LOGD(TAG, "RX stats: decoded=%u dropped_overflow=%u dropped_invalid_esc=%u",
+    char unknown[320];
+    twc_core_format_unhandled_types(&this->core_, unknown, sizeof(unknown));
+    const twc_rx_diag_t *diag = twc_core_get_rx_diag(&this->core_);
+    unsigned unhandled = diag ? diag->unhandled : 0;
+    unsigned checksum_fail = diag ? diag->checksum_fail : 0;
+    ESP_LOGD(TAG,
+             "RX stats: decoded=%u dropped_overflow=%u dropped_invalid_esc=%u unhandled=%u checksum_fail=%u %s",
              this->decoder_.frames_decoded,
              this->decoder_.frames_dropped_overflow,
-             this->decoder_.frames_dropped_invalid_esc);
+             this->decoder_.frames_dropped_invalid_esc,
+             unhandled,
+             checksum_fail,
+             unknown);
     ESP_LOGD(TAG, "TX stats: queued=%u dropped=%u encode_failures=%u",
              (unsigned)this->tx_frames_queued_,
              (unsigned)this->tx_frames_dropped_,

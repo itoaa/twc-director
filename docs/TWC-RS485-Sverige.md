@@ -274,7 +274,7 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 
 ### Logga bussen vid felsökning
 
-Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är avstängda som standard. Slå på switchen **`diag rs485 logging`** (`rs485_debug:` under `twc_director:`) i Home Assistant, så skrivs de på **INFO** i loggen. Av = de skrivs inte alls. Statusraderna (`RX stats`, `TX stats`) ligger kvar på DEBUG. Switchen kommer ihåg sitt läge efter omstart (standard: av). Övrig loggnivå ändras med select-entiteten **diag log level** (`logger: level: VERBOSE`, `initial_level: INFO`, `baud_rate: 0`).
+Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är avstängda som standard. Slå på switchen **`diag rs485 logging`** (`rs485_debug:` under `twc_director:`) i Home Assistant, så skrivs de på **INFO** i loggen. Av = de skrivs inte alls. Statusraderna (`RX stats`, `TX stats`) ligger kvar på DEBUG. `RX stats` innehåller även `unhandled=` och `checksum_fail=` samt `unknown=[TYP:antal,…]`. Okända typ-ID:n loggas första gången på WARN (`Unhandled type=…`), sedan på DEBUG. Switchen kommer ihåg sitt läge efter omstart (standard: av). Övrig loggnivå ändras med select-entiteten **diag log level** (`logger: level: VERBOSE`, `initial_level: INFO`, `baud_rate: 0`).
 
 ## 12. Ej verifierat
 

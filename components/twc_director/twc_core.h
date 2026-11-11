@@ -31,6 +31,12 @@ extern "C" {
 #define TWC_CORE_MAX_DEVICES 8
 #endif
 
+// Fixed-size table of unhandled (decoded, checksum-ok, no RX handler) type IDs.
+// Overflow counts frames whose type did not fit in the table (no heap growth).
+#ifndef TWC_RX_UNHANDLED_MAX_TYPES
+#define TWC_RX_UNHANDLED_MAX_TYPES 16
+#endif
+
 // =============================================================================
 // TIMING CONSTANTS
 // =============================================================================
@@ -144,6 +150,23 @@ typedef void (*twc_core_log_cb_t)(twc_log_level_t level,
                                   const char *message,
                                   void *user_data);
 
+// One unhandled message-type ID (marker<<8 | cmd) and how often it was seen.
+typedef struct {
+  uint16_t type_id;
+  uint32_t count;
+} twc_rx_unhandled_type_t;
+
+// RX diagnostics accumulated by twc_core_handle_frame.
+// Independent of the SLIP decoder's frames_decoded counter (which counts
+// complete unescaped frames and is not changed by these fields).
+typedef struct {
+  uint32_t checksum_fail;
+  uint32_t unhandled;
+  uint32_t unhandled_overflow;  // frames of types that did not fit the table
+  uint8_t n_types;
+  twc_rx_unhandled_type_t types[TWC_RX_UNHANDLED_MAX_TYPES];
+} twc_rx_diag_t;
+
 // Per-device state tracked by core
 struct twc_core_device {
   // Identity
@@ -227,6 +250,9 @@ struct twc_core {
   uint8_t startup_burst_e1_sent;
   uint8_t startup_burst_e2_sent;
   uint32_t startup_burst_last_ms;
+
+  // RX diagnostics (checksum failures and unhandled types)
+  twc_rx_diag_t rx_diag;
 };
 
 // =============================================================================
@@ -275,11 +301,24 @@ void twc_core_set_log_callback(twc_core_t *core,
 // =============================================================================
 
 // Process incoming TWC frame
-// Returns true if frame was valid (passed checksum), false otherwise
+// Returns true if frame was valid (passed checksum), false otherwise.
+// Checksum failures increment rx_diag.checksum_fail. Valid frames whose
+// command has no RX handler increment rx_diag.unhandled (and are still
+// returned as true). The SLIP-layer frames_decoded counter is unchanged.
 bool twc_core_handle_frame(twc_core_t *core,
                            const uint8_t *frame,
                            size_t len,
                            uint32_t now_ms);
+
+// Pointer to the core's RX diagnostic counters. Never NULL if core != NULL.
+const twc_rx_diag_t *twc_core_get_rx_diag(const twc_core_t *core);
+
+// Write a compact list into buf, e.g. "unknown=[FBE0:3,FDEE:1]" or
+// "unknown=[]". If types overflowed the fixed table, appends
+// ",overflow=N" inside the brackets. Returns bytes written (excluding NUL).
+size_t twc_core_format_unhandled_types(const twc_core_t *core,
+                                       char *buf,
+                                       size_t buflen);
 
 // =============================================================================
 // TX PATH (master mode only)

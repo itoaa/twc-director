@@ -26,6 +26,88 @@ uint16_t twc_controller_get_master_address(void) {
 
 static void reconcile_session_current_allocation(twc_core_t *core, uint16_t priority_address);
 
+// Commands the RX path recognizes (device payload handlers and/or core
+// presence tracking). Anything else with a valid checksum is "unhandled".
+static bool twc_cmd_is_handled_rx(twc_cmd_t cmd) {
+  switch (cmd) {
+    case TWC_CMD_HEARTBEAT:
+    case TWC_CMD_CONTROLLER_NEGOTIATION:
+    case TWC_CMD_PERIPHERAL_NEGOTIATION:
+    case TWC_CMD_METER:
+    case TWC_CMD_VERSION:
+    case TWC_CMD_SERIAL:
+    case TWC_CMD_VIN_HI:
+    case TWC_CMD_VIN_MID:
+    case TWC_CMD_VIN_LO:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool frame_has_checksum_mismatch(const uint8_t *frame, size_t len) {
+  if (frame == NULL || len < 5) {
+    return false;
+  }
+  uint8_t checksum = 0;
+  for (size_t i = 1; i < len - 1; ++i) {
+    checksum = (uint8_t)((checksum + frame[i]) & 0xFF);
+  }
+  return checksum != frame[len - 1];
+}
+
+static void note_unhandled_frame(twc_core_t *core,
+                                 const uint8_t *frame,
+                                 size_t len,
+                                 uint16_t type_id,
+                                 uint16_t src_address) {
+  core->rx_diag.unhandled++;
+
+  bool first = false;
+  int slot = -1;
+  for (uint8_t i = 0; i < core->rx_diag.n_types; ++i) {
+    if (core->rx_diag.types[i].type_id == type_id) {
+      slot = (int)i;
+      break;
+    }
+  }
+
+  if (slot >= 0) {
+    core->rx_diag.types[slot].count++;
+  } else if (core->rx_diag.n_types < TWC_RX_UNHANDLED_MAX_TYPES) {
+    slot = (int)core->rx_diag.n_types;
+    core->rx_diag.n_types++;
+    core->rx_diag.types[slot].type_id = type_id;
+    core->rx_diag.types[slot].count = 1;
+    first = true;
+  } else {
+    core->rx_diag.unhandled_overflow++;
+  }
+
+  if (!core->log_cb) {
+    return;
+  }
+
+  char first_hex[24];  // up to 8 bytes: "AA BB CC DD EE FF 00 11" + NUL
+  size_t dump_len = (len > 8) ? 8 : len;
+  int pos = 0;
+  first_hex[0] = '\0';
+  for (size_t i = 0; i < dump_len; ++i) {
+    int n = snprintf(first_hex + pos, sizeof(first_hex) - (size_t)pos,
+                     (i == 0) ? "%02X" : " %02X", frame[i]);
+    if (n < 0 || (size_t)n >= sizeof(first_hex) - (size_t)pos) {
+      break;
+    }
+    pos += n;
+  }
+
+  char msg[160];
+  snprintf(msg, sizeof(msg),
+           "Unhandled type=%04X len=%u src=%04X first=%s",
+           (unsigned)type_id, (unsigned)len, (unsigned)src_address, first_hex);
+  core->log_cb(first ? TWC_LOG_WARNING : TWC_LOG_DEBUG, msg, core->log_user);
+}
+
 // =============================================================================
 // DEVICE REGISTRY
 // =============================================================================
@@ -153,6 +235,63 @@ void twc_core_set_log_callback(twc_core_t *core,
   }
 }
 
+const twc_rx_diag_t *twc_core_get_rx_diag(const twc_core_t *core) {
+  return core ? &core->rx_diag : NULL;
+}
+
+size_t twc_core_format_unhandled_types(const twc_core_t *core,
+                                       char *buf,
+                                       size_t buflen) {
+  if (!buf || buflen == 0) {
+    return 0;
+  }
+  buf[0] = '\0';
+  if (!core) {
+    return 0;
+  }
+
+  int pos = snprintf(buf, buflen, "unknown=[");
+  if (pos < 0) {
+    buf[0] = '\0';
+    return 0;
+  }
+  if ((size_t)pos >= buflen) {
+    buf[buflen - 1] = '\0';
+    return buflen - 1;
+  }
+
+  for (uint8_t i = 0; i < core->rx_diag.n_types; ++i) {
+    int n = snprintf(buf + pos, buflen - (size_t)pos, "%s%04X:%u",
+                     (i == 0) ? "" : ",",
+                     (unsigned)core->rx_diag.types[i].type_id,
+                     (unsigned)core->rx_diag.types[i].count);
+    if (n < 0 || (size_t)n >= buflen - (size_t)pos) {
+      buf[buflen - 1] = '\0';
+      return buflen - 1;
+    }
+    pos += n;
+  }
+
+  if (core->rx_diag.unhandled_overflow > 0) {
+    int n = snprintf(buf + pos, buflen - (size_t)pos, "%soverflow=%u",
+                     (core->rx_diag.n_types > 0) ? "," : "",
+                     (unsigned)core->rx_diag.unhandled_overflow);
+    if (n < 0 || (size_t)n >= buflen - (size_t)pos) {
+      buf[buflen - 1] = '\0';
+      return buflen - 1;
+    }
+    pos += n;
+  }
+
+  if ((size_t)pos + 1 >= buflen) {
+    buf[buflen - 1] = '\0';
+    return buflen - 1;
+  }
+  buf[pos++] = ']';
+  buf[pos] = '\0';
+  return (size_t)pos;
+}
+
 // =============================================================================
 // SESSION MANAGEMENT
 // =============================================================================
@@ -191,6 +330,9 @@ bool twc_core_handle_frame(twc_core_t *core,
   const uint8_t *header, *payload;
   size_t payload_len;
   if (!twc_decode_frame(frame, len, &header, &payload, &payload_len)) {
+    if (frame_has_checksum_mismatch(frame, len)) {
+      core->rx_diag.checksum_fail++;
+    }
     // Log checksum validation failure
     if (core->log_cb) {
       char msg[256];
@@ -228,6 +370,11 @@ bool twc_core_handle_frame(twc_core_t *core,
   twc_cmd_t cmd;
   uint16_t src_address;
   twc_parse_header(header, &marker, &cmd, &src_address);
+
+  if (!twc_cmd_is_handled_rx(cmd)) {
+    uint16_t type_id = (uint16_t)(((uint16_t)frame[0] << 8) | frame[1]);
+    note_unhandled_frame(core, frame, len, type_id, src_address);
+  }
 
   // Ensure device entry exists
   twc_core_device_t *dev = ensure_device(core, src_address);
