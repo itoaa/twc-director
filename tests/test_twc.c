@@ -223,12 +223,166 @@ static void test_global_max_scaling_kept(void) {
   CHECK_NEAR(b->applied_session_current_a, 12.0f);
 }
 
+// ---------------------------------------------------------------------------
+// RX diagnostics: checksum_fail, unhandled types, first-time WARN
+// ---------------------------------------------------------------------------
+typedef struct {
+  twc_log_level_t levels[32];
+  char msgs[32][192];
+  int count;
+} log_cap_t;
+
+static void log_cap_cb(twc_log_level_t level, const char *message, void *user) {
+  log_cap_t *c = (log_cap_t *)user;
+  if (!c || c->count >= 32) return;
+  c->levels[c->count] = level;
+  snprintf(c->msgs[c->count], sizeof(c->msgs[c->count]), "%s", message ? message : "");
+  c->count++;
+}
+
+static size_t build_cmd(uint8_t marker, uint8_t cmd, uint16_t src,
+                        const uint8_t *payload, size_t payload_len,
+                        uint8_t *out, size_t out_cap) {
+  uint8_t hdr[4] = {marker, cmd, (uint8_t)(src >> 8), (uint8_t)src};
+  return twc_build_frame(hdr, 4, payload, payload_len, out, out_cap);
+}
+
+static void test_rx_diag_checksum_and_unhandled(void) {
+  twc_core_t c;
+  log_cap_t logs;
+  twc_core_init(&c);
+  memset(&logs, 0, sizeof(logs));
+  twc_core_set_log_callback(&c, log_cap_cb, &logs);
+
+  const twc_rx_diag_t *d = twc_core_get_rx_diag(&c);
+  CHECK(d != NULL);
+  CHECK(d->checksum_fail == 0);
+  CHECK(d->unhandled == 0);
+  CHECK(d->n_types == 0);
+  char list[64];
+  CHECK(twc_core_format_unhandled_types(&c, list, sizeof(list)) > 0);
+  CHECK(strcmp(list, "unknown=[]") == 0);
+
+  // Known handled types (E0, E1, EB) must not increment unhandled.
+  uint8_t fr[32];
+  uint8_t pl_e0[11] = {0xF0, 0x0D, 0x00, 0x05, 0xDC, 0x00, 0x00, 0, 0, 0, 0};
+  size_t n = build_cmd(0xFD, 0xE0, 0x8988, pl_e0, sizeof(pl_e0), fr, sizeof(fr));
+  CHECK(n == 16);
+  CHECK(twc_core_handle_frame(&c, fr, n, 1000));
+  CHECK(d->unhandled == 0);
+  CHECK(d->checksum_fail == 0);
+
+  n = build_cmd(0xFC, 0xE1, 0xF00D, NULL, 0, fr, sizeof(fr));
+  CHECK(n >= 5);
+  CHECK(twc_core_handle_frame(&c, fr, n, 1100));
+  CHECK(d->unhandled == 0);
+
+  // Real captured meter frame
+  n = hex("FD EB 89 88 00 00 87 1A 00 E4 00 E4 00 E4 16 16 17 00 00 8C", fr);
+  CHECK(twc_core_handle_frame(&c, fr, n, 1200));
+  CHECK(d->unhandled == 0);
+  CHECK(d->checksum_fail == 0);
+
+  // Checksum mismatch on a known type: counted as checksum_fail, not unhandled.
+  n = hex("FD E0 89 88 F0 0D 01 05 DC 04 92 00 00 00 00 66", fr);
+  fr[n - 1] ^= 0xFF;
+  int logs_before = logs.count;
+  CHECK(!twc_core_handle_frame(&c, fr, n, 1300));
+  CHECK(d->checksum_fail == 1);
+  CHECK(d->unhandled == 0);
+  CHECK(logs.count == logs_before + 1);
+  CHECK(logs.levels[logs.count - 1] == TWC_LOG_WARNING);
+  CHECK(strstr(logs.msgs[logs.count - 1], "Checksum FAILED") != NULL);
+
+  // Too-short / malformed is not a checksum failure.
+  uint8_t short_fr[3] = {0xFD, 0xE0, 0x00};
+  CHECK(!twc_core_handle_frame(&c, short_fr, 3, 1400));
+  CHECK(d->checksum_fail == 1);
+  CHECK(d->unhandled == 0);
+
+  // Unknown type FDEE? Wait, EE is VIN_HI and IS handled. Use FD F2 (not in enum).
+  uint8_t pl[4] = {0x00, 0x00, 0x00, 0x00};
+  n = build_cmd(0xFD, 0xF2, 0x8988, pl, sizeof(pl), fr, sizeof(fr));
+  CHECK(n == 9);
+  logs_before = logs.count;
+  CHECK(twc_core_handle_frame(&c, fr, n, 1500));  // checksum ok, still returns true
+  CHECK(d->checksum_fail == 1);
+  CHECK(d->unhandled == 1);
+  CHECK(d->n_types == 1);
+  CHECK(d->types[0].type_id == 0xFDF2);
+  CHECK(d->types[0].count == 1);
+  CHECK(logs.count == logs_before + 1);
+  CHECK(logs.levels[logs.count - 1] == TWC_LOG_WARNING);
+  CHECK(strcmp(logs.msgs[logs.count - 1],
+               "Unhandled type=FDF2 len=9 src=8988 first=FD F2 89 88 00 00 00 00") == 0);
+
+  // Same type again: DEBUG, count increments, no new table slot.
+  logs_before = logs.count;
+  CHECK(twc_core_handle_frame(&c, fr, n, 1600));
+  CHECK(d->unhandled == 2);
+  CHECK(d->n_types == 1);
+  CHECK(d->types[0].count == 2);
+  CHECK(logs.count == logs_before + 1);
+  CHECK(logs.levels[logs.count - 1] == TWC_LOG_DEBUG);
+  CHECK(strstr(logs.msgs[logs.count - 1], "Unhandled type=FDF2") != NULL);
+
+  // A second unknown type (FB B4 plug-state request is known in the enum
+  // but has no RX handler — counts as unhandled).
+  n = build_cmd(0xFB, 0xB4, 0xF00D, pl, sizeof(pl), fr, sizeof(fr));
+  logs_before = logs.count;
+  CHECK(twc_core_handle_frame(&c, fr, n, 1700));
+  CHECK(d->unhandled == 3);
+  CHECK(d->n_types == 2);
+  CHECK(d->types[1].type_id == 0xFBB4);
+  CHECK(d->types[1].count == 1);
+  CHECK(logs.levels[logs.count - 1] == TWC_LOG_WARNING);
+  CHECK(twc_core_format_unhandled_types(&c, list, sizeof(list)) > 0);
+  CHECK(strcmp(list, "unknown=[FDF2:2,FBB4:1]") == 0);
+}
+
+static void test_rx_diag_unhandled_table_overflow(void) {
+  twc_core_t c;
+  twc_core_init(&c);
+  const twc_rx_diag_t *d = twc_core_get_rx_diag(&c);
+  uint8_t fr[32];
+  uint8_t pl[1] = {0x00};
+
+  for (int i = 0; i < TWC_RX_UNHANDLED_MAX_TYPES; ++i) {
+    // Distinct unknown cmds 0x20..0x2F (not in the handled RX set)
+    size_t n = build_cmd(0xFD, (uint8_t)(0x20 + i), 0x8988, pl, 1, fr, sizeof(fr));
+    CHECK(twc_core_handle_frame(&c, fr, n, 2000 + (uint32_t)i));
+  }
+  CHECK(d->n_types == TWC_RX_UNHANDLED_MAX_TYPES);
+  CHECK(d->unhandled == (uint32_t)TWC_RX_UNHANDLED_MAX_TYPES);
+  CHECK(d->unhandled_overflow == 0);
+
+  // 17th distinct type: table stays full, overflow increments, unhandled still grows.
+  size_t n = build_cmd(0xFD, 0x30, 0x8988, pl, 1, fr, sizeof(fr));
+  CHECK(twc_core_handle_frame(&c, fr, n, 3000));
+  CHECK(d->n_types == TWC_RX_UNHANDLED_MAX_TYPES);
+  CHECK(d->unhandled == (uint32_t)TWC_RX_UNHANDLED_MAX_TYPES + 1);
+  CHECK(d->unhandled_overflow == 1);
+
+  char list[320];
+  twc_core_format_unhandled_types(&c, list, sizeof(list));
+  CHECK(strstr(list, "overflow=1") != NULL);
+  CHECK(list[0] == 'u');
+  // A type already in the table still increments its own counter, not overflow.
+  n = build_cmd(0xFD, 0x20, 0x8988, pl, 1, fr, sizeof(fr));
+  CHECK(twc_core_handle_frame(&c, fr, n, 3100));
+  CHECK(d->types[0].count == 2);
+  CHECK(d->unhandled_overflow == 1);
+  CHECK(d->unhandled == (uint32_t)TWC_RX_UNHANDLED_MAX_TYPES + 2);
+}
+
 int main(void) {
   test_meter_decode();
   test_session_current_reaches_twc();
   test_resend_stops_when_matching();
   test_zero_amps_is_sent_while_charging();
   test_global_max_scaling_kept();
+  test_rx_diag_checksum_and_unhandled();
+  test_rx_diag_unhandled_table_overflow();
   if (g_failures) {
     printf("%d check(s) failed\n", g_failures);
     return 1;

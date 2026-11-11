@@ -286,7 +286,7 @@ git merge upstream/main   # eller rebase
 
 ### Logga RS-485-ramar (runtime)
 
-Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är **av som standard**. Lägg till `rs485_debug:` under `twc_director:` så får du en switch i HA, **`diag rs485 logging`** (default OFF, kommer ihåg läget efter omstart). ON = ramloggarna skrivs på **INFO**, OFF = de skrivs inte. `RX stats`/`TX stats` ligger kvar på DEBUG. Övrig loggnivå styrs med select-entiteten **diag log level**:
+Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är **av som standard**. Lägg till `rs485_debug:` under `twc_director:` så får du en switch i HA, **`diag rs485 logging`** (default OFF, kommer ihåg läget efter omstart). ON = ramloggarna skrivs på **INFO**, OFF = de skrivs inte. `RX stats`/`TX stats` ligger kvar på DEBUG. `RX stats` visar också `unhandled=` (avkodade ramar utan RX-hanterare) och `checksum_fail=`, plus en lista `unknown=[TYP:antal,…]`. Första gången en okänd typ syns loggas `Unhandled type=…` på WARN, därefter på DEBUG. Övrig loggnivå styrs med select-entiteten **diag log level**:
 
 ```yaml
 logger:
