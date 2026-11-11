@@ -1,6 +1,6 @@
 # tesla-director-safe.yaml
 #
-# Hardened profile: no web UI control surface, master mode off by default,
+# Hardened profile: no web UI control surface, master mode ON at boot (heartbeats required), evcc setpoints start at 0 A / OFF,
 # explicit safety currents. Prefer this for production; use HA API for control.
 #
 # Copy secrets from secrets.yaml.example. Set global_max_current to your
@@ -26,7 +26,9 @@ esphome:
   on_boot:
     priority: 200
     then:
-      # Master mode stays OFF until you enable it in Home Assistant.
+      # Master mode starts ON at boot (restore_mode ALWAYS_ON): the Wall Connectors need
+      # the master's heartbeats to start. evcc offered current still starts at 0 A and
+      # evcc charge enable OFF until evcc writes.
       - number.set:
           id: twc_0_cap_max_current
           value: ${twc_0_max_current}
@@ -114,6 +116,7 @@ twc_director:
   master_mode:
     id: td_master_mode
     name: "td master mode"
+    restore_mode: ALWAYS_ON
   charging_count:
     name: "twc charging count"
   link_ok:

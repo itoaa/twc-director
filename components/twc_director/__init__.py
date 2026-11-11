@@ -194,7 +194,12 @@ CONFIG_SCHEMA = (
             # Optional switch that controls "master mode" vs passive/observer mode
             cv.Optional(CONF_MASTER_MODE): cv.All(
                 _with_default_name("td master mode"),
-                switch.switch_schema(TWCDirectorMasterModeSwitch),
+                # Default ON at every boot: the Wall Connectors need the master's
+                # heartbeats to start. Override with restore_mode: if you want otherwise.
+                switch.switch_schema(
+                    TWCDirectorMasterModeSwitch,
+                    default_restore_mode="ALWAYS_ON",
+                ),
             ),
             # Optional runtime switch: per-frame RX:/TX:/"Sending E0" logs at INFO when ON
             cv.Optional(CONF_RS485_DEBUG): cv.All(

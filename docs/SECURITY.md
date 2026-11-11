@@ -14,7 +14,7 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 | Contactor switch | Requires **master mode** and EVSE **enabled**; no optimistic UI. |
 | Contactor UI state | Follows bus-inferred current (`session > 0.1 A`), not the last click. |
 | Master OFF | Fail-safe: set session 0 A, best-effort open contactors, then stop TX. |
-| Boot | Does **not** auto-enable master mode. evcc offered current starts at 0 A. |
+| Boot | Master mode is **ON at boot** (`restore_mode: ALWAYS_ON`) because the Wall Connectors need the master heartbeats to start. evcc offered current starts at 0 A and `evcc charge enable` OFF, so no current is offered until evcc writes. |
 | evcc watchdog | Unused `evcc offered current` / `evcc charge enable` for 60 s forces session 0 A. |
 | Web UI | Prefer **no** `web_server` in production (`tesla-director-safe.yaml`). |
 
@@ -26,7 +26,7 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 4. Control only via **Home Assistant API** with `api.encryption`.
 5. Protect **OTA** with a unique password.
 6. Put the ESP on a **trusted IoT LAN/VLAN**; do not expose port 80 to the internet.
-7. Enable **Master Mode** only when you intend to control the bus.
+7. Master Mode is ON at boot by default (needed for the Wall Connectors to start). Switch `td master mode` OFF in HA when you want the director silent (fail-safe: 0 A + open contactors).
 
 ## Threat model (honest)
 

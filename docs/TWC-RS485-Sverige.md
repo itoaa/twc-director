@@ -104,6 +104,8 @@ Payload `FD E2`: `[0]` session/sign, `[1..2]` tillgänglig ström (centiampere),
 2. **4 × `FB E2`** ("peripheral pause"), samma payload-form. Exempel:
    `FB E2 F0 0D 11 00 00 00 00 00 00 00 00 00 00 F0`  (**konstruerad**; checksumma `0xF0`)
 
+**Master mode är PÅ vid boot** (`master_mode: restore_mode: ALWAYS_ON`): boxarna startar inte utan masterns heartbeats. evcc-börvärdet startar ändå på 0 A / `evcc charge enable` AV, så ingen ström erbjuds förrän evcc skriver. Stängs `td master mode` av öppnas kontaktorerna och sändningen upphör.
+
 Efter bursten tar heartbeats (E0) över. En peripheral som fortfarande annonserar sig (`UNCONF_PERIPHERAL`) "claimas" av mastern med en `FB E0` med state `00` och 0 A, varefter den blir en konfigurerad peripheral och binds till en slot i YAML.
 
 Lägen som koden håller reda på per adress: `UNKNOWN`, `PERIPHERAL`, `UNCONF_PERIPHERAL`, `FOREIGN_MASTER` (annan master hörs på bussen), `FOREIGN_PERIPHERAL`.
@@ -267,6 +269,7 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 
 - **Checksummefel / ramar med saknade bitar:** kontrollera att RS-485 inte ligger på GPIO1/GPIO3, att GND är gemensam och att bussen är termineras (120 Ω).
 - **`twc link ok` av:** inga giltiga ramar på 15 s. Kontrollera A/B (byt vid behov), 3,3 V på MAX485 och `flow_control_pin`.
+- **Boxarna startar inte alls:** kontrollera att `td master mode` är ON (default vid boot). Utan master skickas inga heartbeats.
 - **Ingen laddning trots master mode:** `td evcc watchdog ok` ska vara ON, `evcc charge enable` ON och `evcc offered current` ≥ 6 A på **rätt slot** (den med VIN/bil).
 
 ### Logga bussen vid felsökning

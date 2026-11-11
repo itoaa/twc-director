@@ -152,7 +152,7 @@ Se `tesla-director.yaml` för full exempel-setup. Viktiga nycklar under `twc_dir
 | `flow_control_pin` | Valfri GPIO till MAX485 DE+RE (HIGH=sänd, LOW=lyssna). Utelämna för auto-direction |
 | `global_max_current` | Total maxström för alla TWC (`cap global max`) |
 | `global_twc_max_current` | Max per TWC |
-| `master_mode` (`td master mode`) | Switch: director aktiv |
+| `master_mode` (`td master mode`) | Switch: director aktiv. **Default PÅ vid boot** (`restore_mode: ALWAYS_ON`; `RESTORE_DEFAULT_ON` = kom ihåg senaste läget). Boxarna startar inte utan masterns heartbeats |
 | `evse` | Lista med Wall Connectors / slots (exempel-YAML har två) |
 
 Entitetsnamn visar vem som **skriver** värdet:
@@ -273,7 +273,7 @@ Software hardening in this fork (see [docs/SECURITY.md](docs/SECURITY.md)):
 - **`global_max_current` is required** and must be `> 0`
 - Runtime global-max number **updates the C core** (session reconciliation)
 - Contactor commands require **master mode** + EVSE enabled; UI follows bus current
-- **Master mode off at boot** (enable explicitly in HA)
+- **Master mode ON at boot** (`restore_mode: ALWAYS_ON`; Wall Connectors need heartbeats to start). evcc offered current starts at 0 A / charge enable OFF
 - Master disable → fail-safe **0 A session + open contactors**, then stop TX
 - Production example: **`tesla-director-safe.yaml`** (no `web_server`)
 
@@ -342,8 +342,9 @@ Web-UI:t är främst för felsökning; produktionsstyrning bör gå via HA.
 
 1. **Ingen kommunikation** – A/B, GND, enable-pinnar, 9600 8N1
 2. **Offline** – `logger: level: VERBOSE`, kolla `link_ok`
-3. **Strömgränser** – master mode ON, globala gränser
-4. **Kompileringsfel efter ESPHome-uppgradering** – clean build, se sektion om 2026.7 ovan
+3. **Strömgränser** – master mode ON (default), globala gränser
+4. **Boxarna startar inte** – kontrollera att `td master mode` är ON; utan master skickas inga heartbeats
+5. **Kompileringsfel efter ESPHome-uppgradering** – clean build, se sektion om 2026.7 ovan
 
 ## Licens
 

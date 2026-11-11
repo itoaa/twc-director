@@ -143,6 +143,14 @@ void TWCDirectorComponent::setup() {
   twc_core_set_autobind_callback(&this->core_, &autobind_callback_shim, this);
   twc_core_set_log_callback(&this->core_, &log_callback_shim, this);
 
+  // Master mode switch: apply its restore mode (default ALWAYS_ON) so the bus
+  // master starts at boot. Without this the switch has no state and the Wall
+  // Connectors never receive heartbeats. evcc setpoints still start at 0 A / OFF.
+  if (this->master_mode_switch_ != nullptr) {
+    auto initial = this->master_mode_switch_->get_initial_state_with_restore_mode();
+    this->master_mode_switch_->publish_state(initial.value_or(true));
+  }
+
   // Restore the rs485_debug switch (default OFF) so frame logging survives reboots.
   if (this->rs485_debug_switch_ != nullptr) {
     auto initial = this->rs485_debug_switch_->get_initial_state_with_restore_mode();

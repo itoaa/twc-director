@@ -38,7 +38,9 @@ esphome:
   on_boot:
     priority: 200
     then:
-      # Slå inte på master mode här. evcc_offered_current startar på 0 A.
+      # Master mode startar PÅ vid boot (restore_mode ALWAYS_ON): boxarna behöver
+      # masterns heartbeats för att starta. Säkerhet: evcc offered current startar på
+      # 0 A och evcc charge enable är AV tills evcc skriver.
       - number.set:
           id: twc_0_cap_max_current
           value: ${twc_0_max_current}
@@ -158,6 +160,7 @@ twc_director:
   master_mode:
     id: td_master_mode
     name: "td master mode"
+    restore_mode: ALWAYS_ON   # default; RESTORE_DEFAULT_ON = kom ihåg senaste läget
   charging_count:
     name: "twc charging count"
   link_ok:
