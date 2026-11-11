@@ -176,11 +176,14 @@ Regler: **evcc-entiteter är aldrig `diag`/`config`** (de ska synas som vanliga 
 
 ### Home Assistant → evcc
 
-evcc `template: homeassistant` per Wall Connector. Fullständigt exempel längre ned (”Fungerar direkt efter flash”).
+Steg-för-steg för både webbgränssnittet och `evcc.yaml`: [docs/evcc-setup.md](docs/evcc-setup.md).  
+Färdigt exempel: [examples/evcc.yaml](examples/evcc.yaml).
+
+evcc `template: homeassistant` per Wall Connector. Kort översikt nedan.
 
 `state charge`: **A** disconnected, **B** connected/waiting, **C** charging, **F** RS-485 nere / TWC offline / error. Klartext ligger i `state charge text`. evcc:s Home Assistant-GUI har bara A/B/C — **F** ger `unknown charge status` där; peka evcc på A/B/C och använd `system link ok` för bussfel.
 
-VIN publiceras som `state VIN`. HA-mallen har inget identify-fält; använd evcc `vehicles.identifiers` eller custom charger `identify`.
+VIN publiceras som `state VIN`. Nyare evcc:s Home Assistant-mall har ett valfritt avancerat fält `identify` som kan peka dit; annars evcc `vehicles.identifiers`.
 
 Lastbalans: evcc skriver **`evcc current limit`** (`setMaxCurrent`), inte `diag current offered by box` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*` och `limit global max current`.
 
@@ -214,57 +217,7 @@ Standardvärdena i `tesla-director.yaml` är satta så att evcc kan börja anvä
 | `currentL1–L3` | `sensor.tesla_director_s22_garage_inne_meter_current_l1` … `_l3` | Director → evcc |
 | `voltageL1–L3` | `sensor.tesla_director_s22_garage_inne_meter_voltage_l1` … `_l3` | Director → evcc |
 
-Den andra boxen: byt `s22_garage_inne` mot `s22_garage_ute`. Exempel (`evcc.yaml`, byt URI mot din Home Assistant):
-
-```yaml
-chargers:
-  - name: twc_s22_garage_inne
-    type: template
-    template: homeassistant
-    uri: http://homeassistant.local:8123
-    status: sensor.tesla_director_s22_garage_inne_state_charge
-    enabled: switch.tesla_director_s22_garage_inne_evcc_charging_enabled
-    enable: switch.tesla_director_s22_garage_inne_evcc_charging_enabled
-    setMaxCurrent: number.tesla_director_s22_garage_inne_evcc_current_limit
-    power: sensor.tesla_director_s22_garage_inne_meter_power
-    energy: sensor.tesla_director_s22_garage_inne_meter_energy_total
-    currentL1: sensor.tesla_director_s22_garage_inne_meter_current_l1
-    currentL2: sensor.tesla_director_s22_garage_inne_meter_current_l2
-    currentL3: sensor.tesla_director_s22_garage_inne_meter_current_l3
-    voltageL1: sensor.tesla_director_s22_garage_inne_meter_voltage_l1
-    voltageL2: sensor.tesla_director_s22_garage_inne_meter_voltage_l2
-    voltageL3: sensor.tesla_director_s22_garage_inne_meter_voltage_l3
-  - name: twc_s22_garage_ute
-    type: template
-    template: homeassistant
-    uri: http://homeassistant.local:8123
-    status: sensor.tesla_director_s22_garage_ute_state_charge
-    enabled: switch.tesla_director_s22_garage_ute_evcc_charging_enabled
-    enable: switch.tesla_director_s22_garage_ute_evcc_charging_enabled
-    setMaxCurrent: number.tesla_director_s22_garage_ute_evcc_current_limit
-    power: sensor.tesla_director_s22_garage_ute_meter_power
-    energy: sensor.tesla_director_s22_garage_ute_meter_energy_total
-    currentL1: sensor.tesla_director_s22_garage_ute_meter_current_l1
-    currentL2: sensor.tesla_director_s22_garage_ute_meter_current_l2
-    currentL3: sensor.tesla_director_s22_garage_ute_meter_current_l3
-    voltageL1: sensor.tesla_director_s22_garage_ute_meter_voltage_l1
-    voltageL2: sensor.tesla_director_s22_garage_ute_meter_voltage_l2
-    voltageL3: sensor.tesla_director_s22_garage_ute_meter_voltage_l3
-
-loadpoints:
-  - title: S22 Garage Inne
-    charger: twc_s22_garage_inne
-    phases: 3
-    mincurrent: 6
-    maxcurrent: 15
-  - title: S22 Garage Ute
-    charger: twc_s22_garage_ute
-    phases: 3
-    mincurrent: 6
-    maxcurrent: 15
-```
-
-> **Autentisering:** nyare evcc använder inte längre `token:` i YAML utan godkänner Home Assistant via OAuth i evcc:s webbgränssnitt (Konfiguration → Laddare → Home Assistant). Äldre evcc kräver `token: <long-lived access token>` (skapa i HA-profilen, lägg aldrig i git).
+Den andra boxen: byt `s22_garage_inne` mot `s22_garage_ute`. Komplett exempel med båda boxarna, OAuth-beskrivning och `token:`-platshållare för äldre evcc: [examples/evcc.yaml](examples/evcc.yaml). Hur du sätter upp det i evcc:s webbgränssnitt eller som fil i HA-tillägget står i [docs/evcc-setup.md](docs/evcc-setup.md).
 
 **Vilka entiteter är inställningar och vilka sätter evcc?** Bara `evcc charging enabled` och `evcc current limit` skrivs av evcc. `limit …` och `local …` är Directors egna tak/börvärden och sätts av YAML vid boot. `system …` och `diag …` är Directors egna reglage och diagnostik – de är **inte** värden som andra enheter ska skriva, och evcc ska inte peka på dem:
 
@@ -293,6 +246,8 @@ twc-director/
 ├── tesla-director-safe.yaml     # Produktion: samma hårdvara, ingen web_server
 ├── docs/SECURITY.md
 ├── docs/TWC-RS485-Sverige.md    # Hur svenska Gen2-boxar pratar RS-485 (alla ramar)
+├── docs/evcc-setup.md           # Sätta upp evcc mot TWC Director (UI och YAML)
+├── examples/evcc.yaml           # evcc.yaml-exempel för båda boxarna
 ├── secrets.yaml.example
 └── README.md
 ```
