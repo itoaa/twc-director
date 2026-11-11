@@ -197,21 +197,36 @@ The `current_available` field is encoded as centi‑amps; for example, `3200` re
 
 `FD EB` frames contain voltage and current measurements, plus a running energy counter.
 
-Payload layout (as observed from decoded frames):
+Payload layout (15 bytes; verified on a Swedish/EU 3-phase Gen2 TWC, firmware 4.5.10.2):
 
-| Field       | Size (bytes) | Type    | Scale | Notes                          |
-|-------------|--------------|---------|-------|--------------------------------|
-| total_kwh   | 4            | uint32  | 1     | Cumulative energy counter      |
-| phase_l2_v  | 1            | uint8   | 1     | Line‑to‑neutral or phase L2 V  |
-| phase_l1_v  | 1            | uint8   | 1     | Phase L1 voltage               |
-| phase_l3_v  | 1            | uint8   | 1     | Phase L3 voltage               |
-| separator   | 2            | uint16  | -     | Reserved / separator           |
-| phase_l2_i  | 1            | uint8   | 0.5   | Phase L2 current (scaled)      |
-| phase_l1_i  | 1            | uint8   | 0.5   | Phase L1 current (scaled)      |
-| phase_l3_i  | 1            | uint8   | 0.5   | Phase L3 current (scaled)      |
-| padding     | 3            | bytes   | -     | Reserved / padding             |
+| Offset | Field       | Size (bytes) | Type    | Scale | Notes                          |
+|--------|-------------|--------------|---------|-------|--------------------------------|
+| 0..3   | total_kwh   | 4            | uint32  | 1     | Cumulative energy counter (kWh) |
+| 4..5   | phase_l1_v  | 2            | uint16  | 1     | Phase L1 voltage (V)           |
+| 6..7   | phase_l2_v  | 2            | uint16  | 1     | Phase L2 voltage (V)           |
+| 8..9   | phase_l3_v  | 2            | uint16  | 1     | Phase L3 voltage (V)           |
+| 10     | phase_l1_i  | 1            | uint8   | 0.5   | Phase L1 current (0.5 A units) |
+| 11     | phase_l2_i  | 1            | uint8   | 0.5   | Phase L2 current (0.5 A units) |
+| 12     | phase_l3_i  | 1            | uint8   | 0.5   | Phase L3 current (0.5 A units) |
+| 13..14 | padding     | 2            | bytes   | -     | Always 00 00 in captures       |
 
-In practice, `total_kwh` is reported in kWh units by the Wall Connector and does not require additional scaling. Phase currents are encoded as unsigned integers in 0.5 A steps (the reference implementation divides the raw values by 2.0 to obtain amps).
+Real frames from the 3-phase unit:
+
+```text
+FD EB 89 88 | 00 00 87 1A | 00 E4 | 00 E4 | 00 E4 | 16 16 17 | 00 00 | 8C   car charging
+            | 34586 kWh   | 228 V | 228 V | 228 V | 11.0 11.0 11.5 A        (~7.6 kW)
+FD EB 99 83 | 00 00 1D 8F | 00 E6 | 00 E6 | 00 E5 | 00 00 00 | 00 00 | 64   idle
+            | 7567 kWh    | 230 V | 230 V | 229 V | 0 A
+```
+
+> **Correction.** Earlier versions of this document (and of `twc_decode_meter_payload`)
+> described one byte per voltage at offsets 4/5/6 and currents at 9/10/11, in the order
+> L2/L1/L3. That layout is wrong for the 3-phase unit: it read the low byte of the
+> L2 voltage (`E4` = 228) as a current, which showed up as "114 A" on L2.
+> A single-phase US unit is expected to use the same layout with L1 filled and
+> L2/L3 zero, but that has not been verified here.
+
+`total_kwh` is reported in kWh units by the Wall Connector and does not require additional scaling. Phase currents are encoded as unsigned integers in 0.5 A steps (divide the raw value by 2.0 to obtain amps).
 
 ### Version data (FD EC)
 
@@ -552,14 +567,13 @@ class TWCProtocol:
         _pack_ = 1
         _fields_ = [
             ("total_kwh", ctypes.c_uint32),
-            ("phase_l2_v", ctypes.c_uint8),
-            ("phase_l1_v", ctypes.c_uint8),
-            ("phase_l3_v", ctypes.c_uint8),
-            ("separator", ctypes.c_uint16),
-            ("phase_l2_i", ctypes.c_uint8),
-            ("phase_l1_i", ctypes.c_uint8),
-            ("phase_l3_i", ctypes.c_uint8),
-            ("padding", ctypes.c_uint8 * 3)
+            ("phase_l1_v", ctypes.c_uint16),
+            ("phase_l2_v", ctypes.c_uint16),
+            ("phase_l3_v", ctypes.c_uint16),
+            ("phase_l1_i", ctypes.c_uint8),   # 0.5 A units
+            ("phase_l2_i", ctypes.c_uint8),   # 0.5 A units
+            ("phase_l3_i", ctypes.c_uint8),   # 0.5 A units
+            ("padding", ctypes.c_uint8 * 2)
         ]
 
     class VersionData(BigEndianStructure):

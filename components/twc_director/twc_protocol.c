@@ -264,15 +264,18 @@ bool twc_decode_meter_payload(const uint8_t *payload,
 
   out->total_energy_kwh = (float)total_kwh;
 
-  // Voltages (direct values)
-  out->phase_l2_v = (float)payload[4];
-  out->phase_l1_v = (float)payload[5];
-  out->phase_l3_v = (float)payload[6];
+  // Voltages: big-endian uint16, whole volts, L1/L2/L3 at [4..5], [6..7], [8..9].
+  // (Verified on Swedish 3-phase Gen2 TWC, firmware 4.5.10.2:
+  //  00 E4 00 E4 00 E4 -> 228/228/228 V.)
+  out->phase_l1_v = (float)(((uint16_t)payload[4] << 8) | (uint16_t)payload[5]);
+  out->phase_l2_v = (float)(((uint16_t)payload[6] << 8) | (uint16_t)payload[7]);
+  out->phase_l3_v = (float)(((uint16_t)payload[8] << 8) | (uint16_t)payload[9]);
 
-  // Currents (0.5A units)
-  out->phase_l2_a = (float)payload[9] / 2.0f;
+  // Currents: one byte per phase in 0.5 A units, L1/L2/L3 at [10], [11], [12].
+  // (16 16 17 -> 11.0 / 11.0 / 11.5 A.)
   out->phase_l1_a = (float)payload[10] / 2.0f;
-  out->phase_l3_a = (float)payload[11] / 2.0f;
+  out->phase_l2_a = (float)payload[11] / 2.0f;
+  out->phase_l3_a = (float)payload[12] / 2.0f;
 
   return true;
 }

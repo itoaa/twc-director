@@ -431,3 +431,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Host unit test binary
+tests/test_twc
