@@ -11,6 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  unit-tests:
+    name: Host unit tests (C core)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and run tests
+        run: make -C tests test
+
   compile:
     name: Compile ESPHome ${{ matrix.esphome }}
     runs-on: ubuntu-latest
