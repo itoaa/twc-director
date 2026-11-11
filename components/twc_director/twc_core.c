@@ -6,6 +6,7 @@
 #include "twc_protocol.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // =============================================================================
@@ -447,6 +448,45 @@ static bool is_charging_state(int status_code) {
   }
 }
 
+// Decide whether the master should (re)send the applied session current (0x09)
+// to a charging TWC even though no new value is pending.
+//
+// Resend when the TWC reports an available current that differs from the applied
+// value (> TWC_SESSION_MISMATCH_TOLERANCE_A), rate limited to
+// TWC_SESSION_RESEND_INTERVAL_MS; additionally refresh every
+// TWC_SESSION_REFRESH_INTERVAL_MS. Only while the TWC is in a charging state
+// (or reports available current) and an applied value exists (>= 0).
+static bool session_resend_due(const twc_core_device_t *dev, uint32_t now_ms,
+                               bool *out_mismatch) {
+  *out_mismatch = false;
+  if (dev->applied_session_current_a < 0.0f) {
+    return false;  // No session setpoint has been computed yet
+  }
+
+  int status = twc_device_get_status_code(&dev->device);
+  if (!is_charging_state(status) && !(dev->current_available_a > 0.0f)) {
+    return false;
+  }
+
+  uint32_t since = (dev->last_session_cmd_tx_ms == 0u)
+                       ? 0xFFFFFFFFu
+                       : ((now_ms >= dev->last_session_cmd_tx_ms)
+                              ? (now_ms - dev->last_session_cmd_tx_ms)
+                              : 0u);
+
+  float diff = dev->current_available_a - dev->applied_session_current_a;
+  if (diff < 0.0f) diff = -diff;
+
+  if (diff > TWC_SESSION_MISMATCH_TOLERANCE_A) {
+    *out_mismatch = true;
+    if (dev->session_mismatch_resends < TWC_SESSION_MAX_FAST_RESENDS) {
+      return since >= TWC_SESSION_RESEND_INTERVAL_MS;
+    }
+    return since >= TWC_SESSION_REFRESH_INTERVAL_MS;
+  }
+  return since >= TWC_SESSION_REFRESH_INTERVAL_MS;
+}
+
 // Reconcile session current allocation across actively charging TWCs
 // Uses priority-based allocation: the device that triggered the change (priority_address)
 // gets its requested current first, then remaining capacity is allocated to others.
@@ -505,6 +545,7 @@ static void reconcile_session_current_allocation(twc_core_t *core, uint16_t prio
       if (changed) {
         dev->pending_session_current_cmd = true;
         dev->last_session_current_cmd_a = applied;
+        dev->session_mismatch_resends = 0u;
       }
     }
     return;
@@ -556,6 +597,7 @@ static void reconcile_session_current_allocation(twc_core_t *core, uint16_t prio
     if (changed) {
       dev->pending_session_current_cmd = true;
       dev->last_session_current_cmd_a = applied;
+      dev->session_mismatch_resends = 0u;
     }
   }
 }
@@ -648,6 +690,7 @@ static bool send_heartbeat(twc_core_t *core, uint32_t now_ms) {
     uint8_t charge_state = 0u;
     uint16_t available_centiamps = 0u;
     uint16_t delivered_centiamps = 0u;
+    bool session_mismatch = false;
 
     if (mode == TWC_MODE_UNCONF_PERIPHERAL) {
       // All zeros for unconfigured
@@ -684,6 +727,22 @@ static bool send_heartbeat(twc_core_t *core, uint32_t now_ms) {
         charge_state = 0x07u;
         available_centiamps = 0u;
         delivered_centiamps = 0u;
+      } else if (session_resend_due(dev, now_ms, &session_mismatch)) {
+        // Re-assert the applied session current (0x09). Covers the case where
+        // the TWC still reports a different limit than we want (e.g. its own
+        // 15 A after a charge start) and periodic refresh.
+        float current_a = dev->applied_session_current_a;
+        if (current_a < 0.0f) current_a = 0.0f;
+        if (current_a > dev_max) current_a = dev_max;
+
+        charge_state = 0x09u;
+        available_centiamps = (uint16_t)(current_a * 100.0f + 0.5f);
+        delivered_centiamps = 0u;
+        if (session_mismatch) {
+          if (dev->session_mismatch_resends < 255u) dev->session_mismatch_resends++;
+        } else {
+          dev->session_mismatch_resends = 0u;
+        }
       } else {
         // Normal heartbeat: all zeros
         charge_state = 0u;
@@ -720,6 +779,7 @@ static bool send_heartbeat(twc_core_t *core, uint32_t now_ms) {
       dev->pending_initial_current_cmd = false;
     } else if (charge_state == 0x09u) {
       dev->pending_session_current_cmd = false;
+      dev->last_session_cmd_tx_ms = now_ms;
     } else if (charge_state == 0x06u) {
       dev->pending_increase_current_cmd = false;
     } else if (charge_state == 0x07u) {

@@ -55,6 +55,33 @@ extern "C" {
 #define TWC_POST_HEARTBEAT_DELAY_MS 500U
 #endif
 
+// While a TWC is charging, the master re-sends the applied session current
+// (0x09) whenever the TWC reports a different available current than the
+// applied one (difference > TWC_SESSION_MISMATCH_TOLERANCE_A), at most once
+// per TWC_SESSION_RESEND_INTERVAL_MS.
+#ifndef TWC_SESSION_RESEND_INTERVAL_MS
+#define TWC_SESSION_RESEND_INTERVAL_MS 3000U
+#endif
+
+// Even when the TWC already reports the applied value, refresh it with a 0x09
+// frame this often while charging (keeps the limit alive / self-heals).
+#ifndef TWC_SESSION_REFRESH_INTERVAL_MS
+#define TWC_SESSION_REFRESH_INTERVAL_MS 10000U
+#endif
+
+// Number of fast (TWC_SESSION_RESEND_INTERVAL_MS) resends while the TWC keeps
+// reporting a different limit. After that the master falls back to the slower
+// refresh interval (some firmware may report its own cap instead of echoing the
+// offered value; this avoids hammering the bus / status log in that case).
+#ifndef TWC_SESSION_MAX_FAST_RESENDS
+#define TWC_SESSION_MAX_FAST_RESENDS 3U
+#endif
+
+// Reported-vs-applied difference (amps) that counts as a mismatch.
+#ifndef TWC_SESSION_MISMATCH_TOLERANCE_A
+#define TWC_SESSION_MISMATCH_TOLERANCE_A 0.25f
+#endif
+
 // Interval between startup burst frames (milliseconds)
 #ifndef TWC_STARTUP_BURST_INTERVAL_MS
 #define TWC_STARTUP_BURST_INTERVAL_MS 200U
@@ -145,6 +172,8 @@ struct twc_core_device {
   float last_initial_current_cmd_a;
   bool  pending_session_current_cmd;
   float last_session_current_cmd_a;
+  uint32_t last_session_cmd_tx_ms;  // When the last 0x09 frame was sent (0 = never)
+  uint8_t  session_mismatch_resends; // Consecutive fast resends while TWC reports a different limit
   bool  pending_increase_current_cmd;
   bool  pending_decrease_current_cmd;
 

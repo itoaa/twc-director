@@ -578,9 +578,17 @@ void TWCDirectorComponent::update_evse_sensors_(EvseEntry &evse, uint32_t now) {
   bool is_nonzero = (session_amps > 0.1f);
   if (evse.session_current) {
     if (was_zero && is_nonzero) {
-      // 0 → >0: charging started, sync to TWC's available current
+      // 0 → >0: charging started, sync to TWC's available current.
+      // Skipped for evcc-managed slots: there the evcc/HA setpoint
+      // (offered_current / charge_enable) is authoritative and must never be
+      // overwritten with the TWC's own reported limit (typically its own 15 A).
+      const bool evcc_managed =
+          (evse.offered_current != nullptr || evse.charge_enable_switch != nullptr);
       float available_a = twc_device_get_current_available_a(dev);
-      if (available_a > 0.0f) {
+      if (evcc_managed) {
+        ESP_LOGD(TAG, "TWC 0x%04X: charging started (%.1fA); evcc-managed, keeping evcc setpoint (TWC reports %.1fA)",
+                 evse.address, session_amps, available_a);
+      } else if (available_a > 0.0f) {
         ESP_LOGI(TAG, "TWC 0x%04X: charging started (%.1fA), syncing session current number to %.1fA",
                  evse.address, session_amps, available_a);
         evse.session_current->publish_state(available_a);
