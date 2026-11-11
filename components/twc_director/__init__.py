@@ -108,7 +108,7 @@ CONF_EVCC_WATCHDOG_OK = "evcc_watchdog_ok"
 
 
 # --- Helper: Ensure named child for EVSE nested entities ---
-def _ensure_named_child(evse_conf, key, suffix):
+def _ensure_named_child(evse_conf, key, suffix, category=None):
     if key not in evse_conf:
         return
     val = evse_conf[key]
@@ -118,6 +118,9 @@ def _ensure_named_child(evse_conf, key, suffix):
     if not isinstance(val, dict):
         evse_conf[key] = val
         return
+    # Default entity category (diagnostic/config) unless the user set one explicitly.
+    if category is not None and "entity_category" not in val:
+        val["entity_category"] = category
     # If already has a name, leave as is
     if "name" in val:
         evse_conf[key] = val
@@ -134,40 +137,40 @@ def _evse_preprocess(config):
     # Always create the online sensor (schema used to require it; inject if omitted).
     if CONF_TWC_ONLINE not in config:
         config[CONF_TWC_ONLINE] = {}
-    _ensure_named_child(config, CONF_TWC_ONLINE, "twc online")
-    _ensure_named_child(config, CONF_FIRMWARE_VERSION, "twc firmware")
-    _ensure_named_child(config, CONF_SERIAL_NUMBER, "twc serial")
-    _ensure_named_child(config, CONF_VEHICLE_CONNECTED, "twc vehicle connected")
-    _ensure_named_child(config, CONF_VEHICLE_VIN, "twc vin")
-    _ensure_named_child(config, CONF_CONTACTOR, "td contactor")
-    _ensure_named_child(config, CONF_CONTACTOR_STATUS, "twc contactor closed")
-    _ensure_named_child(config, CONF_AVAILABLE_CURRENT_SENSOR, "twc available current")
-    _ensure_named_child(config, CONF_INITIAL_CURRENT, "cap initial current")
-    _ensure_named_child(config, CONF_MAX_CURRENT, "cap max current")
-    _ensure_named_child(config, CONF_MAX_CURRENT_SENSOR, "twc max current")
-    _ensure_named_child(config, CONF_SESSION_CURRENT, "td session current")
-    _ensure_named_child(config, CONF_SESSION_CURRENT_SENSOR, "twc session current")
-    _ensure_named_child(config, CONF_MODE, "twc mode")
-    _ensure_named_child(config, CONF_STATUS_TEXT, "twc status raw")
-    _ensure_named_child(config, CONF_STATUS_LOG, "twc status log")
-    _ensure_named_child(config, CONF_METER_CURRENT_PHASE_A, "twc current l1")
-    _ensure_named_child(config, CONF_METER_CURRENT_PHASE_B, "twc current l2")
-    _ensure_named_child(config, CONF_METER_CURRENT_PHASE_C, "twc current l3")
-    _ensure_named_child(config, CONF_METER_VOLTAGE_PHASE_A, "twc voltage l1")
-    _ensure_named_child(config, CONF_METER_VOLTAGE_PHASE_B, "twc voltage l2")
-    _ensure_named_child(config, CONF_METER_VOLTAGE_PHASE_C, "twc voltage l3")
-    _ensure_named_child(config, CONF_METER_ENERGY_TOTAL, "twc energy total")
-    _ensure_named_child(config, CONF_METER_ENERGY_SESSION, "twc energy session")
-    _ensure_named_child(config, CONF_INCREASE_CURRENT, "td increase current")
-    _ensure_named_child(config, CONF_DECREASE_CURRENT, "td decrease current")
-    _ensure_named_child(config, CONF_ENABLE, "td bus enable")
-    _ensure_named_child(config, CONF_CHARGE_STATUS, "twc charge status")
-    _ensure_named_child(config, CONF_CHARGE_STATUS_TEXT, "twc charge status text")
-    _ensure_named_child(config, CONF_CHARGING, "twc charging")
-    _ensure_named_child(config, CONF_POWER, "twc power")
-    _ensure_named_child(config, CONF_CHARGE_ENABLE, "evcc charge enable")
-    _ensure_named_child(config, CONF_OFFERED_CURRENT, "evcc offered current")
-    _ensure_named_child(config, CONF_EVCC_WATCHDOG_OK, "td evcc watchdog ok")
+    _ensure_named_child(config, CONF_TWC_ONLINE, "state online")
+    _ensure_named_child(config, CONF_FIRMWARE_VERSION, "info firmware", "diagnostic")
+    _ensure_named_child(config, CONF_SERIAL_NUMBER, "info serial number", "diagnostic")
+    _ensure_named_child(config, CONF_VEHICLE_CONNECTED, "state car connected")
+    _ensure_named_child(config, CONF_VEHICLE_VIN, "state VIN")
+    _ensure_named_child(config, CONF_CONTACTOR, "diag contactor", "diagnostic")
+    _ensure_named_child(config, CONF_CONTACTOR_STATUS, "state contactor closed")
+    _ensure_named_child(config, CONF_AVAILABLE_CURRENT_SENSOR, "diag current offered by box", "diagnostic")
+    _ensure_named_child(config, CONF_INITIAL_CURRENT, "local start current", "config")
+    _ensure_named_child(config, CONF_MAX_CURRENT, "limit max current", "config")
+    _ensure_named_child(config, CONF_MAX_CURRENT_SENSOR, "diag max current reported by box", "diagnostic")
+    _ensure_named_child(config, CONF_SESSION_CURRENT, "local current setpoint", "config")
+    _ensure_named_child(config, CONF_SESSION_CURRENT_SENSOR, "diag current setpoint sent", "diagnostic")
+    _ensure_named_child(config, CONF_MODE, "state mode")
+    _ensure_named_child(config, CONF_STATUS_TEXT, "diag state raw", "diagnostic")
+    _ensure_named_child(config, CONF_STATUS_LOG, "diag state log", "diagnostic")
+    _ensure_named_child(config, CONF_METER_CURRENT_PHASE_A, "meter current L1")
+    _ensure_named_child(config, CONF_METER_CURRENT_PHASE_B, "meter current L2")
+    _ensure_named_child(config, CONF_METER_CURRENT_PHASE_C, "meter current L3")
+    _ensure_named_child(config, CONF_METER_VOLTAGE_PHASE_A, "meter voltage L1")
+    _ensure_named_child(config, CONF_METER_VOLTAGE_PHASE_B, "meter voltage L2")
+    _ensure_named_child(config, CONF_METER_VOLTAGE_PHASE_C, "meter voltage L3")
+    _ensure_named_child(config, CONF_METER_ENERGY_TOTAL, "meter energy total")
+    _ensure_named_child(config, CONF_METER_ENERGY_SESSION, "meter energy session")
+    _ensure_named_child(config, CONF_INCREASE_CURRENT, "local increase current", "config")
+    _ensure_named_child(config, CONF_DECREASE_CURRENT, "local decrease current", "config")
+    _ensure_named_child(config, CONF_ENABLE, "system bus enabled", "config")
+    _ensure_named_child(config, CONF_CHARGE_STATUS, "state charge")
+    _ensure_named_child(config, CONF_CHARGE_STATUS_TEXT, "state charge text")
+    _ensure_named_child(config, CONF_CHARGING, "state charging")
+    _ensure_named_child(config, CONF_POWER, "meter power")
+    _ensure_named_child(config, CONF_CHARGE_ENABLE, "evcc charging enabled")
+    _ensure_named_child(config, CONF_OFFERED_CURRENT, "evcc current limit")
+    _ensure_named_child(config, CONF_EVCC_WATCHDOG_OK, "diag watchdog ok", "diagnostic")
     return config
 
 # --- Helper: Default name factory for top-level entities ---
@@ -194,22 +197,23 @@ CONFIG_SCHEMA = (
 
             # Optional switch that controls "master mode" vs passive/observer mode
             cv.Optional(CONF_MASTER_MODE): cv.All(
-                _with_default_name("td master mode"),
+                _with_default_name("system master mode"),
                 # Default ON at every boot: the Wall Connectors need the master's
                 # heartbeats to start. Override with restore_mode: if you want otherwise.
                 switch.switch_schema(
                     TWCDirectorMasterModeSwitch,
                     default_restore_mode="ALWAYS_ON",
+                    entity_category=ENTITY_CATEGORY_CONFIG,
                 ),
             ),
             # Optional runtime switch: per-frame RX:/TX:/"Sending E0" logs at INFO when ON
             cv.Optional(CONF_RS485_DEBUG): cv.All(
-                _with_default_name("td rs485 debug"),
+                _with_default_name("diag rs485 logging"),
                 switch.switch_schema(
                     TWCDirectorRs485DebugSwitch,
                     icon="mdi:bug",
                     default_restore_mode="RESTORE_DEFAULT_OFF",
-                    entity_category=ENTITY_CATEGORY_CONFIG,
+                    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                 ),
             ),
             # evcc watchdog. 0s (default) = disabled. evcc's Home Assistant charger only
@@ -229,7 +233,7 @@ CONFIG_SCHEMA = (
             # Optional number entity for runtime global max current control
             # (limited to the compile-time CONF_GLOBAL_MAX_CURRENT safety maximum)
             cv.Optional(CONF_GLOBAL_MAX_CURRENT_CONTROL): cv.All(
-                _with_default_name("cap global max"),
+                _with_default_name("limit global max current"),
                 number.number_schema(
                     TWCDirectorCurrentNumber,
                     unit_of_measurement=UNIT_AMPERE,
@@ -241,7 +245,7 @@ CONFIG_SCHEMA = (
 
             # Optional sensor: number of EVSEs currently charging
             cv.Optional(CONF_CHARGING_COUNT): cv.All(
-                _with_default_name("twc charging count"),
+                _with_default_name("system charging count"),
                 sensor.sensor_schema(
                     icon="mdi:ev-station",
                     state_class=STATE_CLASS_MEASUREMENT,
@@ -250,7 +254,7 @@ CONFIG_SCHEMA = (
 
             # Optional binary sensor for link health (true = receiving valid frames)
             cv.Optional(CONF_LINK_OK): cv.All(
-                _with_default_name("twc link ok"),
+                _with_default_name("system link ok"),
                 binary_sensor.binary_sensor_schema(
                     device_class="connectivity",
                 ),
@@ -390,7 +394,6 @@ CONFIG_SCHEMA = (
                                 TWCDirectorEnableSwitch,
                                 icon="mdi:power",
                                 default_restore_mode="ALWAYS_ON",
-                                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
                             ),
                             cv.Optional(CONF_CHARGE_STATUS): text_sensor.text_sensor_schema(
                                 icon="mdi:ev-station",
@@ -411,18 +414,14 @@ CONFIG_SCHEMA = (
                                 TWCDirectorChargeEnableSwitch,
                                 icon="mdi:ev-station",
                                 default_restore_mode="ALWAYS_OFF",
-                                entity_category=ENTITY_CATEGORY_CONFIG,
                             ),
                             cv.Optional(CONF_OFFERED_CURRENT): number.number_schema(
                                 TWCDirectorCurrentNumber,
                                 unit_of_measurement=UNIT_AMPERE,
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
-                                entity_category=ENTITY_CATEGORY_CONFIG,
                             ),
-                            cv.Optional(CONF_EVCC_WATCHDOG_OK): binary_sensor.binary_sensor_schema(
-                                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-                            ),
+                            cv.Optional(CONF_EVCC_WATCHDOG_OK): binary_sensor.binary_sensor_schema(),
                         }
                     ),
                 )

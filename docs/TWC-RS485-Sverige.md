@@ -104,7 +104,7 @@ Payload `FD E2`: `[0]` session/sign, `[1..2]` tillgänglig ström (centiampere),
 2. **4 × `FB E2`** ("peripheral pause"), samma payload-form. Exempel:
    `FB E2 F0 0D 11 00 00 00 00 00 00 00 00 00 00 F0`  (**konstruerad**; checksumma `0xF0`)
 
-**Master mode är PÅ vid boot** (`master_mode: restore_mode: ALWAYS_ON`): boxarna startar inte utan masterns heartbeats. evcc-börvärdet startar ändå på 0 A / `evcc charge enable` AV, så ingen ström erbjuds förrän evcc skriver. Stängs `td master mode` av öppnas kontaktorerna och sändningen upphör.
+**Master mode är PÅ vid boot** (`master_mode: restore_mode: ALWAYS_ON`): boxarna startar inte utan masterns heartbeats. evcc-börvärdet startar ändå på 0 A / `evcc charging enabled` AV, så ingen ström erbjuds förrän evcc skriver. Stängs `system master mode` av öppnas kontaktorerna och sändningen upphör.
 
 Efter bursten tar heartbeats (E0) över. En peripheral som fortfarande annonserar sig (`UNCONF_PERIPHERAL`) "claimas" av mastern med en `FB E0` med state `00` och 0 A, varefter den blir en konfigurerad peripheral och binds till en slot i YAML.
 
@@ -125,7 +125,7 @@ FB E0 F0 0D | 89 88 | ST | AA AA | DD DD | 00 00 00 00 | KK
 | State | Namn | Betydelse | Payload |
 |-------|------|-----------|---------|
 | `00` | normal heartbeat | Ingen ny order (`avail=0 deliv=0`) | |
-| `05` | sätt **initial**-ström | Ström som boxen får starta med (`cap initial current`) | `AA AA` = ström |
+| `05` | sätt **initial**-ström | Ström som boxen får starta med (`local start current`) | `AA AA` = ström |
 | `06` | öka ström | Be boxen öka (PROTOCOL.md: ca +2 A) | 0 |
 | `07` | minska ström | Be boxen minska (ca −2 A) | 0 |
 | `09` | sätt **session**-ström | Aktuell gräns under pågående laddning (evcc `offered current`) | `AA AA` = ström |
@@ -243,12 +243,12 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 
 ## 9. Hur evcc-börvärdet når boxen
 
-1. evcc skriver `evcc offered current` (och `evcc charge enable`) i Home Assistant → ESPHome-entiteterna.
-2. Directorn klampar värdet mot `cap max current`, `cap global max` och 6 A-minimum (0 A = stopp), skalar vid behov ner så att summan över boxarna ryms i `global_max_current`, och får fram ett **applicerat** värde.
+1. evcc skriver `evcc current limit` (och `evcc charging enabled`) i Home Assistant → ESPHome-entiteterna.
+2. Directorn klampar värdet mot `limit max current`, `limit global max current` och 6 A-minimum (0 A = stopp), skalar vid behov ner så att summan över boxarna ryms i `global_max_current`, och får fram ett **applicerat** värde.
 3. Mastern skickar `FB E0 … 09 <ström>`. Så länge boxen laddar skickas `09` om när boxens rapporterade `avail` skiljer sig > 0,25 A från det applicerade värdet (högst var 3:e sekund, efter tre försök var 10:e sekund) samt som uppdatering var 10:e sekund.
-4. **evcc-watchdog (valfri, AV som standard):** evcc skriver bara vid ändring, så en tidsgräns skulle avbryta en stabil laddning. Med `evcc_watchdog_timeout` satt (t.ex. `10min`) sätts börvärdet till **0 A** om evcc inte skrivit inom tiden (`td evcc watchdog ok` = OFF) och `evcc charge enable`/`evcc offered current` publiceras som AV/0 så att evcc skriver om dem.
+4. **evcc-watchdog (valfri, AV som standard):** evcc skriver bara vid ändring, så en tidsgräns skulle avbryta en stabil laddning. Med `evcc_watchdog_timeout` satt (t.ex. `10min`) sätts börvärdet till **0 A** om evcc inte skrivit inom tiden (`diag watchdog ok` = OFF) och `evcc charging enabled`/`evcc current limit` publiceras som AV/0 så att evcc skriver om dem.
 5. **Stopp:** 0 A skickas som `09` med `00 00` och upprepas så länge boxen laddar. Kontaktorerna öppnas med `FC B2` bara när master mode stängs av eller contactor-switchen används. Hur boxen/bilen reagerar på `09 0 A` (avbryter direkt eller sänker till minimum) är **ej verifierat** i loggarna.
-6. Laddstart: initial-strömmen (`05`, `cap initial current`) sätts oberoende av evcc. På slots med evcc-entiteter skriver Directorn inte längre över evcc:s värde med boxens egen ström vid laddstart.
+6. Laddstart: initial-strömmen (`05`, `local start current`) sätts oberoende av evcc. På slots med evcc-entiteter skriver Directorn inte längre över evcc:s värde med boxens egen ström vid laddstart.
 
 ## 10. Tider och gränser (från koden)
 
@@ -268,13 +268,13 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 ## 11. Felsökning
 
 - **Checksummefel / ramar med saknade bitar:** kontrollera att RS-485 inte ligger på GPIO1/GPIO3, att GND är gemensam och att bussen är termineras (120 Ω).
-- **`twc link ok` av:** inga giltiga ramar på 15 s. Kontrollera A/B (byt vid behov), 3,3 V på MAX485 och `flow_control_pin`.
-- **Boxarna startar inte alls:** kontrollera att `td master mode` är ON (default vid boot). Utan master skickas inga heartbeats.
-- **Ingen laddning trots master mode:** `td evcc watchdog ok` ska vara ON, `evcc charge enable` ON och `evcc offered current` ≥ 6 A på **rätt slot** (den med VIN/bil).
+- **`system link ok` av:** inga giltiga ramar på 15 s. Kontrollera A/B (byt vid behov), 3,3 V på MAX485 och `flow_control_pin`.
+- **Boxarna startar inte alls:** kontrollera att `system master mode` är ON (default vid boot). Utan master skickas inga heartbeats.
+- **Ingen laddning trots master mode:** `diag watchdog ok` ska vara ON, `evcc charging enabled` ON och `evcc current limit` ≥ 6 A på **rätt slot** (den med VIN/bil).
 
 ### Logga bussen vid felsökning
 
-Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är avstängda som standard. Slå på switchen **`td rs485 debug`** (`rs485_debug:` under `twc_director:`) i Home Assistant, så skrivs de på **INFO** i loggen. Av = de skrivs inte alls. Statusraderna (`RX stats`, `TX stats`) ligger kvar på DEBUG. Switchen kommer ihåg sitt läge efter omstart (standard: av). Övrig loggnivå ändras med select-entiteten **Lognivå** (`logger: level: VERBOSE`, `initial_level: INFO`, `baud_rate: 0`).
+Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är avstängda som standard. Slå på switchen **`diag rs485 logging`** (`rs485_debug:` under `twc_director:`) i Home Assistant, så skrivs de på **INFO** i loggen. Av = de skrivs inte alls. Statusraderna (`RX stats`, `TX stats`) ligger kvar på DEBUG. Switchen kommer ihåg sitt läge efter omstart (standard: av). Övrig loggnivå ändras med select-entiteten **diag log level** (`logger: level: VERBOSE`, `initial_level: INFO`, `baud_rate: 0`).
 
 ## 12. Ej verifierat
 

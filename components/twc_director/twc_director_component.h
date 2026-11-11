@@ -239,7 +239,7 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   // evcc watchdog timeout in ms; 0 = disabled (default).
   void set_evcc_watchdog_timeout_ms(std::uint32_t ms) { this->evcc_watchdog_timeout_ms_ = ms; }
 
-  // Optional "td rs485 debug" switch gating per-frame bus logging.
+  // Optional "diag rs485 logging" switch gating per-frame bus logging.
   void set_rs485_debug_switch(TWCDirectorRs485DebugSwitch *sw) {
     this->rs485_debug_switch_ = sw;
     if (sw != nullptr) {

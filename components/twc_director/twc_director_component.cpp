@@ -177,7 +177,7 @@ void TWCDirectorComponent::setup() {
     if (evse.evcc_watchdog_ok) {
       evse.evcc_watchdog_ok->publish_state(true);
     }
-    // td bus enable: ON at boot (heartbeats to this TWC) so nothing must be set in HA.
+    // system bus enabled: ON at boot (heartbeats to this TWC) so nothing must be set in HA.
     if (evse.enable_switch) {
       auto initial = evse.enable_switch->get_initial_state_with_restore_mode();
       evse.enabled = initial.value_or(true);
@@ -928,7 +928,7 @@ void TWCDirectorComponent::handle_current_number_control(
   if (type == TWCDirectorCurrentNumber::TYPE_OFFERED) {
     EvseEntry *evse = this->find_evse_for_control_(address);
     if (!evse) {
-      ESP_LOGW(TAG, "evcc offered current rejected: EVSE 0x%04X not found", address);
+      ESP_LOGW(TAG, "evcc current limit rejected: EVSE 0x%04X not found", address);
       return;
     }
     float clamped = this->clamp_offered_current_(*evse, value);
@@ -1180,7 +1180,7 @@ void TWCDirectorCurrentNumber::control(float value) {
 
   float applied = value;
   if (this->parent_) {
-    // Global max / evcc offered don't require a bound address at write time.
+    // Global max / evcc current limit don't require a bound address at write time.
     if (this->type_ == TYPE_GLOBAL_MAX || this->type_ == TYPE_OFFERED || this->address_ != 0) {
       this->parent_->handle_current_number_control(this->address_, value, this->type_);
       // Re-read clamps applied in parent for global max

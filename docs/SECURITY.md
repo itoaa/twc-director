@@ -14,8 +14,8 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 | Contactor switch | Requires **master mode** and EVSE **enabled**; no optimistic UI. |
 | Contactor UI state | Follows bus-inferred current (`session > 0.1 A`), not the last click. |
 | Master OFF | Fail-safe: set session 0 A, best-effort open contactors, then stop TX. |
-| Boot | Master mode is **ON at boot** (`restore_mode: ALWAYS_ON`) because the Wall Connectors need the master heartbeats to start. evcc offered current starts at 0 A and `evcc charge enable` OFF, so no current is offered until evcc writes. |
-| evcc watchdog | Optional (`evcc_watchdog_timeout`, default `0s` = off, because evcc writes only on change). When it trips, session 0 A and `evcc charge enable` / `evcc offered current` are published OFF / 0 so evcc re-syncs. |
+| Boot | Master mode is **ON at boot** (`restore_mode: ALWAYS_ON`) because the Wall Connectors need the master heartbeats to start. evcc current limit starts at 0 A and `evcc charging enabled` OFF, so no current is offered until evcc writes. |
+| evcc watchdog | Optional (`evcc_watchdog_timeout`, default `0s` = off, because evcc writes only on change). When it trips, session 0 A and `evcc charging enabled` / `evcc current limit` are published OFF / 0 so evcc re-syncs. |
 | Web UI | Prefer **no** `web_server` in production (`tesla-director-safe.yaml`). |
 
 ## Recommended deployment
@@ -26,7 +26,7 @@ correct installation (breaker, cable, hardware limits) plus the policies below.
 4. Control only via **Home Assistant API** with `api.encryption`.
 5. Protect **OTA** with a unique password.
 6. Put the ESP on a **trusted IoT LAN/VLAN**; do not expose port 80 to the internet.
-7. Master Mode is ON at boot by default (needed for the Wall Connectors to start). Switch `td master mode` OFF in HA when you want the director silent (fail-safe: 0 A + open contactors).
+7. Master Mode is ON at boot by default (needed for the Wall Connectors to start). Switch `system master mode` OFF in HA when you want the director silent (fail-safe: 0 A + open contactors).
 
 ## Threat model (honest)
 

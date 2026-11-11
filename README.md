@@ -148,53 +148,43 @@ Se `tesla-director.yaml` för full exempel-setup. Viktiga nycklar under `twc_dir
 | Nyckel | Betydelse |
 |--------|-----------|
 | `addr` | Director-adress på bussen (t.ex. `0xF00D`) |
-| `rs485_debug` | Valfri switch (`td rs485 debug`): ramloggar på INFO när ON, default OFF |
+| `rs485_debug` | Valfri switch (`diag rs485 logging`): ramloggar på INFO när ON, default OFF |
 | `flow_control_pin` | Valfri GPIO till MAX485 DE+RE (HIGH=sänd, LOW=lyssna). Utelämna för auto-direction |
-| `global_max_current` | Total maxström för alla TWC (`cap global max`) |
+| `global_max_current` | Total maxström för alla TWC (`limit global max current`) |
 | `global_twc_max_current` | Max per TWC |
-| `master_mode` (`td master mode`) | Switch: director aktiv. **Default PÅ vid boot** (`restore_mode: ALWAYS_ON`; `RESTORE_DEFAULT_ON` = kom ihåg senaste läget). Boxarna startar inte utan masterns heartbeats |
+| `master_mode` (`system master mode`) | Switch: director aktiv. **Default PÅ vid boot** (`restore_mode: ALWAYS_ON`; `RESTORE_DEFAULT_ON` = kom ihåg senaste läget). Boxarna startar inte utan masterns heartbeats |
 | `evse` | Lista med Wall Connectors / slots (exempel-YAML har två) |
 
-Entitetsnamn visar vem som **skriver** värdet:
+### Namnstandard för entiteter
 
-| Prefix | Skriver | Exempel |
-|--------|---------|---------|
-| `twc_` | Tesla-director från RS-485 | `twc charge status`, `twc vin`, `twc power` |
-| `evcc_` | evcc via Home Assistant | `evcc charge enable`, `evcc offered current` |
-| `cap_` | du / YAML, hårda tak | `cap max current`, `cap global max` |
-| `td_` | Tesla-director lokalt (egna reglage/diagnostik; **inget evcc ska sätta**) | `td master mode`, `td bus enable`, `td contactor`, `td evcc watchdog ok`, `td rs485 debug` |
+Alla entitetsnamn är på **engelska** och har formen `<slot-namn> <prefix> <namn>`. Slot-namnet kommer först så att entiteterna grupperas per box. Home Assistant visar enhetsnamnet (`Tesla-Director`) separat och bygger entity_id som `<domän>.tesla_director_<slot>_<prefix>_<namn>` (gemener, understreck). Entiteter som gäller hela Director saknar slot-namn (t.ex. `system master mode`).
+
+| Prefix | Betydelse | Skrivs av | Kategori i HA | Exempel |
+|--------|-----------|-----------|---------------|---------|
+| `evcc` | det evcc skriver/läser | evcc | normal | `evcc charging enabled`, `evcc current limit` |
+| `meter` | uppmätta värden, skrivskyddade | Director (RS-485) | normal | `meter current L1`, `meter voltage L1`, `meter power`, `meter energy total`, `meter energy session` |
+| `state` | box-/bilstatus | Director (RS-485) | normal | `state charge` (A/B/C/F), `state charge text`, `state charging`, `state car connected`, `state VIN`, `state online`, `state mode`, `state contactor closed` |
+| `limit` | säkerhetstak som alltid gäller | du / YAML vid boot | config | `limit max current`, `limit global max current` |
+| `local` | låter Director köra utan evcc | du / YAML vid boot | config | `local start current`, `local current setpoint`, `local increase current`, `local decrease current` |
+| `system` | huvudbrytare och buss | du | config (`link ok`/`charging count` är vanliga sensorer) | `system master mode`, `system bus enabled`, `system link ok`, `system charging count` |
+| `diag` | felsökning | Director / du | diagnostic | `diag contactor`, `diag rs485 logging`, `diag watchdog ok`, `diag state raw`, `diag state log`, `diag current offered by box`, `diag current setpoint sent`, `diag max current reported by box`, `diag log level` |
+| `info` | identitet | Director (RS-485) | diagnostic | `info serial number`, `info firmware` |
+
+Regler: **evcc-entiteter är aldrig `diag`/`config`** (de ska synas som vanliga entiteter). Standardnamnen sätts i komponenten (`_ensure_named_child` i `__init__.py`) och YAML-filerna använder samma namn. Boxarnas slot-namn styrs av substitutionerna `twc_0_name` / `twc_1_name` och är bundna till RS-485-adressen via `twc_N_address`.
+
+> **Byter du namn på en befintlig installation** skapar ESPHome nya entiteter (unique_id följer namnet). Ta bort de gamla (nu `unavailable`) under Inställningar → Enheter → Tesla-Director, annars kan nya entity_id få suffix `_2`.
 
 ### Home Assistant → evcc
 
-evcc `template: homeassistant` per TWC (Slot 0 visad). Status är `A`/`B`/`C`/`F`.
+evcc `template: homeassistant` per Wall Connector. Fullständigt exempel längre ned (”Fungerar direkt efter flash”).
 
-```yaml
-chargers:
-  - name: twc_slot_0
-    type: template
-    template: homeassistant
-    uri: http://homeassistant.local:8123
-    status: sensor.tesla_director_slot_0_twc_charge_status
-    enabled: switch.tesla_director_slot_0_evcc_charge_enable
-    enable: switch.tesla_director_slot_0_evcc_charge_enable
-    setMaxCurrent: number.tesla_director_slot_0_evcc_offered_current
-    power: sensor.tesla_director_slot_0_twc_power
-    energy: sensor.tesla_director_slot_0_twc_energy_total
-    currentL1: sensor.tesla_director_slot_0_twc_current_l1
-    currentL2: sensor.tesla_director_slot_0_twc_current_l2
-    currentL3: sensor.tesla_director_slot_0_twc_current_l3
-    voltageL1: sensor.tesla_director_slot_0_twc_voltage_l1
-    voltageL2: sensor.tesla_director_slot_0_twc_voltage_l2
-    voltageL3: sensor.tesla_director_slot_0_twc_voltage_l3
-```
+`state charge`: **A** disconnected, **B** connected/waiting, **C** charging, **F** RS-485 nere / TWC offline / error. Klartext ligger i `state charge text`. evcc:s Home Assistant-GUI har bara A/B/C — **F** ger `unknown charge status` där; peka evcc på A/B/C och använd `system link ok` för bussfel.
 
-`twc charge status`: **A** disconnected, **B** connected/waiting, **C** charging, **F** RS-485 nere / TWC offline / error. Klartext ligger i `twc charge status text`. evcc:s Home Assistant-GUI har bara A/B/C — **F** ger `unknown charge status` där; peka evcc på A/B/C och använd `twc link ok` för bussfel.
+VIN publiceras som `state VIN`. HA-mallen har inget identify-fält; använd evcc `vehicles.identifiers` eller custom charger `identify`.
 
-VIN publiceras som `twc vin`. HA-mallen har inget identify-fält; använd evcc `vehicles.identifiers` eller custom charger `identify`.
+Lastbalans: evcc skriver **`evcc current limit`** (`setMaxCurrent`), inte `diag current offered by box` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*` och `limit global max current`.
 
-Lastbalans: evcc skriver **`evcc offered current`** (`setMaxCurrent`), inte `twc available current` (det är bara avläsning). 0 A = stopp, ≥6 A = tak. Director klampar mot `cap_*` och `cap global max`.
-
-**evcc-watchdog (valfri, AV som standard):** evcc skriver `evcc offered current` / `evcc charge enable` bara när värdet *ändras* (inte periodiskt). En tidsgräns skulle därför bryta en pågående laddning med konstant ström, så watchdogen är avstängd (`evcc_watchdog_timeout: 0s`). Sätt t.ex. `evcc_watchdog_timeout: 10min` under `twc_director:` om du ändå vill ha en dödmansgrepp. Löser den ut sätts strömmen till 0 A och `evcc charge enable` / `evcc offered current` publiceras som AV / 0, så att evcc ser det och skriver om sina värden (`td evcc watchdog ok` = OFF tills nästa skrivning). Vid omstart av ESP:n startar `evcc charge enable` AV och `evcc offered current` 0 A (säkert); evcc läser tillbaka `enabled` och skriver om rätt värde.
+**evcc-watchdog (valfri, AV som standard):** evcc skriver `evcc current limit` / `evcc charging enabled` bara när värdet *ändras* (inte periodiskt). En tidsgräns skulle därför bryta en pågående laddning med konstant ström, så watchdogen är avstängd (`evcc_watchdog_timeout: 0s`). Sätt t.ex. `evcc_watchdog_timeout: 10min` under `twc_director:` om du ändå vill ha en dödmansgrepp. Löser den ut sätts strömmen till 0 A och `evcc charging enabled` / `evcc current limit` publiceras som AV / 0, så att evcc ser det och skriver om sina värden (`diag watchdog ok` = OFF tills nästa skrivning). Vid omstart av ESP:n startar `evcc charging enabled` AV och `evcc current limit` 0 A (säkert); evcc läser tillbaka `enabled` och skriver om rätt värde.
 
 ### Fungerar direkt efter flash (inget i Home Assistant behöver ändras)
 
@@ -202,55 +192,73 @@ Standardvärdena i `tesla-director.yaml` är satta så att evcc kan börja anvä
 
 | Inställning | Värde efter flash |
 |-------------|-------------------|
-| `td master mode` | **ON** (`ALWAYS_ON`) |
-| `td bus enable` (per slot) | **ON** (`ALWAYS_ON`) |
-| `cap global max` | `global_max_current` (15 A), sätts i koden |
-| `cap max current` per slot | `twc_N_max_current` (15 A), sätts vid boot via `on_boot` |
-| `cap initial current` per slot | `twc_N_initial_current` (6 A), sätts vid boot via `on_boot` |
-| `evcc charge enable` | **OFF** tills evcc skriver |
-| `evcc offered current` | **0 A** tills evcc skriver |
-| `td rs485 debug` | OFF |
-| Slot → box | fast via `address:` (`twc_0_address`, `twc_1_address`) – ändra till dina boxars sista fyra serienummersiffror |
+| `system master mode` | **ON** (`ALWAYS_ON`) |
+| `system bus enabled` (per box) | **ON** (`ALWAYS_ON`) |
+| `limit global max current` | `global_max_current` (15 A), sätts i koden |
+| `limit max current` per box | `twc_N_max_current` (15 A), sätts vid boot via `on_boot` |
+| `local start current` per box | `twc_N_initial_current` (6 A), sätts vid boot via `on_boot` |
+| `evcc charging enabled` | **OFF** tills evcc skriver |
+| `evcc current limit` | **0 A** tills evcc skriver |
+| `diag rs485 logging` | OFF |
+| Box → RS-485-adress | fast via `address:` (`twc_0_address` = `0x9983` = ”S22 Garage Inne”, `twc_1_address` = `0x8988` = ”S22 Garage Ute”) – ändra till dina boxars sista fyra serienummersiffror |
 
-**Entiteter evcc ska peka på** (per slot; ESPHome-enhet `tesla-director`, friendly name `Tesla-Director`, så blir entity_id `<domän>.tesla_director_<entitetsnamn med _>`; byter du namn i HA ändras id:t):
+**Entiteter evcc ska peka på** (per box; exemplet använder slot-namnet `S22 Garage Inne` → `s22_garage_inne`, enhetsnamn `Tesla-Director`; byter du namn i HA ändras id:t):
 
-| evcc-fält | Entitet (Slot 0) | Skrivs av |
-|-----------|------------------|-----------|
-| `status` | `sensor.tesla_director_slot_0_twc_charge_status` (A/B/C/F) | Director → evcc |
-| `enabled` | `switch.tesla_director_slot_0_evcc_charge_enable` | evcc (läser tillbaka) |
-| `enable` | `switch.tesla_director_slot_0_evcc_charge_enable` | evcc skriver |
-| `setMaxCurrent` (→ `maxcurrent`) | `number.tesla_director_slot_0_evcc_offered_current` | evcc skriver |
-| `power` | `sensor.tesla_director_slot_0_twc_power` | Director → evcc |
-| `energy` | `sensor.tesla_director_slot_0_twc_energy_total` (kWh) | Director → evcc |
-| `currentL1–L3` | `sensor.tesla_director_slot_0_twc_current_l1` … `_l3` | Director → evcc |
-| `voltageL1–L3` | `sensor.tesla_director_slot_0_twc_voltage_l1` … `_l3` | Director → evcc |
+| evcc-fält | Entitet | Riktning |
+|-----------|---------|----------|
+| `status` | `sensor.tesla_director_s22_garage_inne_state_charge` (A/B/C/F) | Director → evcc |
+| `enabled` och `enable` | `switch.tesla_director_s22_garage_inne_evcc_charging_enabled` | evcc skriver, läser tillbaka |
+| `setMaxCurrent` (→ `maxcurrent`) | `number.tesla_director_s22_garage_inne_evcc_current_limit` | evcc skriver |
+| `power` | `sensor.tesla_director_s22_garage_inne_meter_power` | Director → evcc |
+| `energy` | `sensor.tesla_director_s22_garage_inne_meter_energy_total` (kWh) | Director → evcc |
+| `currentL1–L3` | `sensor.tesla_director_s22_garage_inne_meter_current_l1` … `_l3` | Director → evcc |
+| `voltageL1–L3` | `sensor.tesla_director_s22_garage_inne_meter_voltage_l1` … `_l3` | Director → evcc |
 
-Slot 1: byt `slot_0` mot `slot_1`. Exempel (`evcc.yaml`, byt URI mot din Home Assistant):
+Den andra boxen: byt `s22_garage_inne` mot `s22_garage_ute`. Exempel (`evcc.yaml`, byt URI mot din Home Assistant):
 
 ```yaml
 chargers:
-  - name: twc_slot_0
+  - name: twc_s22_garage_inne
     type: template
     template: homeassistant
     uri: http://homeassistant.local:8123
-    status: sensor.tesla_director_slot_0_twc_charge_status
-    enabled: switch.tesla_director_slot_0_evcc_charge_enable
-    enable: switch.tesla_director_slot_0_evcc_charge_enable
-    setMaxCurrent: number.tesla_director_slot_0_evcc_offered_current
-    power: sensor.tesla_director_slot_0_twc_power
-    energy: sensor.tesla_director_slot_0_twc_energy_total
-    currentL1: sensor.tesla_director_slot_0_twc_current_l1
-    currentL2: sensor.tesla_director_slot_0_twc_current_l2
-    currentL3: sensor.tesla_director_slot_0_twc_current_l3
-    voltageL1: sensor.tesla_director_slot_0_twc_voltage_l1
-    voltageL2: sensor.tesla_director_slot_0_twc_voltage_l2
-    voltageL3: sensor.tesla_director_slot_0_twc_voltage_l3
-  # twc_slot_1: samma med slot_1
+    status: sensor.tesla_director_s22_garage_inne_state_charge
+    enabled: switch.tesla_director_s22_garage_inne_evcc_charging_enabled
+    enable: switch.tesla_director_s22_garage_inne_evcc_charging_enabled
+    setMaxCurrent: number.tesla_director_s22_garage_inne_evcc_current_limit
+    power: sensor.tesla_director_s22_garage_inne_meter_power
+    energy: sensor.tesla_director_s22_garage_inne_meter_energy_total
+    currentL1: sensor.tesla_director_s22_garage_inne_meter_current_l1
+    currentL2: sensor.tesla_director_s22_garage_inne_meter_current_l2
+    currentL3: sensor.tesla_director_s22_garage_inne_meter_current_l3
+    voltageL1: sensor.tesla_director_s22_garage_inne_meter_voltage_l1
+    voltageL2: sensor.tesla_director_s22_garage_inne_meter_voltage_l2
+    voltageL3: sensor.tesla_director_s22_garage_inne_meter_voltage_l3
+  - name: twc_s22_garage_ute
+    type: template
+    template: homeassistant
+    uri: http://homeassistant.local:8123
+    status: sensor.tesla_director_s22_garage_ute_state_charge
+    enabled: switch.tesla_director_s22_garage_ute_evcc_charging_enabled
+    enable: switch.tesla_director_s22_garage_ute_evcc_charging_enabled
+    setMaxCurrent: number.tesla_director_s22_garage_ute_evcc_current_limit
+    power: sensor.tesla_director_s22_garage_ute_meter_power
+    energy: sensor.tesla_director_s22_garage_ute_meter_energy_total
+    currentL1: sensor.tesla_director_s22_garage_ute_meter_current_l1
+    currentL2: sensor.tesla_director_s22_garage_ute_meter_current_l2
+    currentL3: sensor.tesla_director_s22_garage_ute_meter_current_l3
+    voltageL1: sensor.tesla_director_s22_garage_ute_meter_voltage_l1
+    voltageL2: sensor.tesla_director_s22_garage_ute_meter_voltage_l2
+    voltageL3: sensor.tesla_director_s22_garage_ute_meter_voltage_l3
 
 loadpoints:
-  - title: Tesla Slot 0
-    charger: twc_slot_0
-    mode: pv
+  - title: S22 Garage Inne
+    charger: twc_s22_garage_inne
+    phases: 3
+    mincurrent: 6
+    maxcurrent: 15
+  - title: S22 Garage Ute
+    charger: twc_s22_garage_ute
     phases: 3
     mincurrent: 6
     maxcurrent: 15
@@ -258,15 +266,13 @@ loadpoints:
 
 > **Autentisering:** nyare evcc använder inte längre `token:` i YAML utan godkänner Home Assistant via OAuth i evcc:s webbgränssnitt (Konfiguration → Laddare → Home Assistant). Äldre evcc kräver `token: <long-lived access token>` (skapa i HA-profilen, lägg aldrig i git).
 
-**Vad är `td …`-entiteterna?** De är Directors egna reglage och diagnostik – **inte** värden som andra enheter ska skriva till Director, och evcc ska inte peka på dem:
+**Vilka entiteter är inställningar och vilka sätter evcc?** Bara `evcc charging enabled` och `evcc current limit` skrivs av evcc. `limit …` och `local …` är Directors egna tak/börvärden och sätts av YAML vid boot. `system …` och `diag …` är Directors egna reglage och diagnostik – de är **inte** värden som andra enheter ska skriva, och evcc ska inte peka på dem:
 
-- `td master mode` – huvudbrytare för busmastern. ON = Director skickar heartbeats. OFF = fail-safe: 0 A, kontaktorer öppnas, sedan tyst.
-- `td bus enable` (per slot) – om Director pratar med just den boxen. ON som standard.
-- `td contactor` (per slot) – manuell kontaktorstyrning (FC B1/B2), endast i master mode; för felsökning.
-- `td evcc watchdog ok` – diagnostik: ON om evcc skrivit nyligen (alltid ON när watchdogen är avstängd).
-- `td rs485 debug` – slår på/av ramloggning (se ovan).
-
-Det som skrivs *till* Director är `evcc charge enable` och `evcc offered current` (av evcc) samt `cap_*` (hårda tak, sätts av YAML vid boot; justeras bara om du vill ha andra gränser).
+- `system master mode` – huvudbrytare för busmastern. ON = Director skickar heartbeats. OFF = fail-safe: 0 A, kontaktorer öppnas, sedan tyst.
+- `system bus enabled` (per box) – om Director pratar med just den boxen. ON som standard.
+- `diag contactor` (per box) – manuell kontaktorstyrning (FC B1/B2), endast i master mode; för felsökning.
+- `diag watchdog ok` – diagnostik: ON om evcc skrivit nyligen (alltid ON när watchdogen är avstängd).
+- `diag rs485 logging` – slår på/av ramloggning (se ovan).
 
 **Hur strömmen når Wall Connectorn:** när sessionsströmmen ändras skickar mastern ett `0x09`-kommando (”Setting limit”) i heartbeat-ramen. Tidigare skickades det bara en gång. Nu skickar mastern om det applicerade värdet så länge Wall Connectorn laddar och rapporterar en annan tillgänglig ström än den vi vill ha (>0,25 A skillnad, högst var 3:e sekund, därefter var 10:e sekund om boxen fortsätter rapportera något annat), samt som periodisk uppdatering var 10:e sekund. 0 A (evcc av / watchdog) skickas på samma sätt så länge boxen laddar. På slots med evcc-entiteter skriver laddstarten inte längre över evcc:s värde med boxens egen ström.
 
@@ -313,7 +319,7 @@ git merge upstream/main   # eller rebase
 
 ### Logga RS-485-ramar (runtime)
 
-Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är **av som standard**. Lägg till `rs485_debug:` under `twc_director:` så får du en switch i HA, **`td rs485 debug`** (default OFF, kommer ihåg läget efter omstart). ON = ramloggarna skrivs på **INFO**, OFF = de skrivs inte. `RX stats`/`TX stats` ligger kvar på DEBUG. Övrig loggnivå styrs med select-entiteten **Lognivå**:
+Per-ram-loggarna (`RX: …`, `TX: …`, `Sending E0 to …`) är **av som standard**. Lägg till `rs485_debug:` under `twc_director:` så får du en switch i HA, **`diag rs485 logging`** (default OFF, kommer ihåg läget efter omstart). ON = ramloggarna skrivs på **INFO**, OFF = de skrivs inte. `RX stats`/`TX stats` ligger kvar på DEBUG. Övrig loggnivå styrs med select-entiteten **diag log level**:
 
 ```yaml
 logger:
@@ -323,11 +329,11 @@ logger:
 
 select:
   - platform: logger
-    name: "Lognivå"
+    name: "diag log level"
 
 twc_director:
   rs485_debug:
-    name: "td rs485 debug"
+    name: "diag rs485 logging"
 ```
 
 ### Tester
@@ -345,7 +351,7 @@ Software hardening in this fork (see [docs/SECURITY.md](docs/SECURITY.md)):
 - **`global_max_current` is required** and must be `> 0`
 - Runtime global-max number **updates the C core** (session reconciliation)
 - Contactor commands require **master mode** + EVSE enabled; UI follows bus current
-- **Master mode ON at boot** (`restore_mode: ALWAYS_ON`; Wall Connectors need heartbeats to start). evcc offered current starts at 0 A / charge enable OFF
+- **Master mode ON at boot** (`restore_mode: ALWAYS_ON`; Wall Connectors need heartbeats to start). evcc current limit starts at 0 A / charge enable OFF
 - Master disable → fail-safe **0 A session + open contactors**, then stop TX
 - Production example: **`tesla-director-safe.yaml`** (no `web_server`)
 
@@ -415,7 +421,7 @@ Web-UI:t är främst för felsökning; produktionsstyrning bör gå via HA.
 1. **Ingen kommunikation** – A/B, GND, enable-pinnar, 9600 8N1
 2. **Offline** – `logger: level: VERBOSE`, kolla `link_ok`
 3. **Strömgränser** – master mode ON (default), globala gränser
-4. **Boxarna startar inte** – kontrollera att `td master mode` är ON; utan master skickas inga heartbeats
+4. **Boxarna startar inte** – kontrollera att `system master mode` är ON; utan master skickas inga heartbeats
 5. **Kompileringsfel efter ESPHome-uppgradering** – clean build, se sektion om 2026.7 ovan
 
 ## Licens
