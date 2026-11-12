@@ -27,11 +27,11 @@ substitutions:
   # cap_* defaults below can be applied at boot. Find yours in the log: "TWC 0x....".
   twc_0_address: "0x9983"   # serial A20J0149983
   twc_0_name: "S22 Garage Inne"
-  twc_0_initial_current: "6"
+  twc_0_initial_current: "0"
   twc_0_max_current: "15"
   twc_1_address: "0x8988"   # serial A19E0108988
   twc_1_name: "S22 Garage Ute"
-  twc_1_initial_current: "6"
+  twc_1_initial_current: "0"
   twc_1_max_current: "15"
 
 esphome:
