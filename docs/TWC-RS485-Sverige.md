@@ -248,7 +248,7 @@ Tidigare versioner av koden läste en byte per spänning på offset 4/5/6 och st
 3. Mastern skickar `FB E0 … 09 <ström>`. Så länge boxen laddar skickas `09` om när boxens rapporterade `avail` skiljer sig > 0,25 A från det applicerade värdet (högst var 3:e sekund, efter tre försök var 10:e sekund) samt som uppdatering var 10:e sekund.
 4. **evcc-watchdog (valfri, AV som standard):** evcc skriver bara vid ändring, så en tidsgräns skulle avbryta en stabil laddning. Med `evcc_watchdog_timeout` satt (t.ex. `10min`) sätts börvärdet till **0 A** om evcc inte skrivit inom tiden (`diag watchdog ok` = OFF) och `evcc charging enabled`/`evcc current limit` publiceras som AV/0 så att evcc skriver om dem.
 5. **Stopp:** 0 A skickas som `09` med `00 00` och upprepas så länge boxen laddar. Kontaktorerna öppnas med `FC B2` bara när master mode stängs av eller contactor-switchen används. Hur boxen/bilen reagerar på `09 0 A` (avbryter direkt eller sänker till minimum) är **ej verifierat** i loggarna.
-6. Laddstart: initial-strömmen (`05`, `local start current`) sätts oberoende av evcc. På slots med evcc-entiteter skriver Directorn inte längre över evcc:s värde med boxens egen ström vid laddstart.
+6. Laddstart: initial-strömmen (`05`, `local start current`) sätts oberoende av evcc. Standard i `tesla-director.yaml` är **0 A**. Directorn skickar `05` med `00 00` när det applicerade värdet blir 0 A eller när en bil ansluts. På slots med evcc-entiteter skriver Directorn inte längre över evcc:s värde med boxens egen ström vid laddstart. Hur TWC:n reagerar på `05` med 0 A — om den väntar, eller faller tillbaka på sitt eget värde — är **overifierat**; Ola testar det på bussen.
 
 ## 10. Tider och gränser (från koden)
 

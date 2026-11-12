@@ -416,6 +416,36 @@ static void test_setpoint_sent_clamped(void) {
   CHECK(avail_b == 1200);
 }
 
+
+static void test_zero_amps_is_sent_as_initial_05(void) {
+  // 0 A is a real initial-current value (not "unset"). If desired and applied
+  // both already start at 0, pending_initial_current_cmd is not set until a
+  // car connects or applied is reset to -1. This test first applies a non-zero
+  // initial so the subsequent change to 0 A actually queues a 0x05.
+  twc_core_t c; tx_log_t l;
+  init_core(&c, &l);
+  rx_e0(&c, 0x8988, 0x00, 0, 0, 1000);
+  twc_core_set_desired_initial_current(&c, 0x8988, 6.0f);
+  run_ticks(&c, 1000, 4000);
+
+  twc_core_device_t *d = twc_core_get_device_by_address(&c, 0x8988);
+  CHECK(twc_core_get_last_sent_setpoint_cmd(d) == 0x05u);
+  CHECK_NEAR(twc_core_get_last_sent_setpoint_a(d), 6.0f);
+
+  twc_core_set_desired_initial_current(&c, 0x8988, 0.0f);
+  CHECK_NEAR(d->desired_initial_current_a, 0.0f);
+  rx_e0(&c, 0x8988, 0x00, 0, 0, 5000);
+  run_ticks(&c, 5000, 9000);
+
+  CHECK(twc_core_has_sent_setpoint(d));
+  CHECK(twc_core_get_last_sent_setpoint_cmd(d) == 0x05u);
+  CHECK_NEAR(twc_core_get_last_sent_setpoint_a(d), 0.0f);
+
+  unsigned avail = 0;
+  CHECK(last_setpoint_hb(&l, 0x8988, &avail) == 0x05);
+  CHECK(avail == 0);
+}
+
 int main(void) {
   test_meter_decode();
   test_heartbeat_current_scale();
@@ -428,6 +458,7 @@ int main(void) {
   test_setpoint_sent_09_centiamps();
   test_setpoint_sent_05_centiamps();
   test_setpoint_sent_clamped();
+  test_zero_amps_is_sent_as_initial_05();
   if (g_failures) {
     printf("%d check(s) failed\n", g_failures);
     return 1;

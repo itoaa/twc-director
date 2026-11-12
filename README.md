@@ -240,7 +240,7 @@ Standardvärdena i `tesla-director.yaml` är satta så att evcc kan börja anvä
 | `system bus enabled` (per box) | **ON** (`ALWAYS_ON`) |
 | `limit global max current` | `global_max_current` (15 A), sätts i koden |
 | `limit max current` per box | `twc_N_max_current` (15 A), sätts vid boot via `on_boot` |
-| `local start current` per box | `twc_N_initial_current` (6 A), sätts vid boot via `on_boot` |
+| `local start current` per box | `twc_N_initial_current` (**0 A**), sätts vid boot via `on_boot`. Hur TWC:n reagerar på ett `05`-kommando med 0 A (väntar, eller faller tillbaka på sitt eget värde) är **overifierat**; Ola testar det på bussen. |
 | `evcc charging enabled` | **OFF** tills evcc skriver |
 | `evcc current limit` | **0 A** tills evcc skriver |
 | `diag rs485 logging` | OFF |
