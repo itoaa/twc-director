@@ -304,6 +304,7 @@ CONFIG_SCHEMA = (
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
                                 state_class=STATE_CLASS_MEASUREMENT,
+                                accuracy_decimals=0,
                             ),
                             cv.Optional(CONF_INITIAL_CURRENT): number.number_schema(
                                 TWCDirectorCurrentNumber,
@@ -316,6 +317,8 @@ CONFIG_SCHEMA = (
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
                                 state_class=STATE_CLASS_MEASUREMENT,
+                                # E0/E2 current_available is uint16 centiamps (0.01 A).
+                                accuracy_decimals=2,
                             ),
                             cv.Optional(CONF_SESSION_CURRENT): number.number_schema(
                                 TWCDirectorCurrentNumber,
@@ -328,6 +331,8 @@ CONFIG_SCHEMA = (
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
                                 state_class=STATE_CLASS_MEASUREMENT,
+                                # Published as max(L1,L2,L3) from the EB meter frame (0.5 A steps).
+                                accuracy_decimals=1,
                             ),
                             cv.Optional(CONF_MODE): text_sensor.text_sensor_schema(),
                             cv.Optional(CONF_STATUS_TEXT): text_sensor.text_sensor_schema(
@@ -336,24 +341,29 @@ CONFIG_SCHEMA = (
                             cv.Optional(CONF_STATUS_LOG): text_sensor.text_sensor_schema(
                                 icon="mdi:history",
                             ),
-                            # Per-phase current sensors (A)
+                            # Per-phase current sensors (A).
+                            # EB meter currents are uint8 in 0.5 A units, so one decimal
+                            # is the real resolution — do not advertise 0.1 A or 0.01 A.
                             cv.Optional(CONF_METER_CURRENT_PHASE_A): sensor.sensor_schema(
                                 unit_of_measurement=UNIT_AMPERE,
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
                                 state_class=STATE_CLASS_MEASUREMENT,
+                                accuracy_decimals=1,
                             ),
                             cv.Optional(CONF_METER_CURRENT_PHASE_B): sensor.sensor_schema(
                                 unit_of_measurement=UNIT_AMPERE,
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
                                 state_class=STATE_CLASS_MEASUREMENT,
+                                accuracy_decimals=1,
                             ),
                             cv.Optional(CONF_METER_CURRENT_PHASE_C): sensor.sensor_schema(
                                 unit_of_measurement=UNIT_AMPERE,
                                 icon=ICON_CURRENT_AC,
                                 device_class=DEVICE_CLASS_CURRENT,
                                 state_class=STATE_CLASS_MEASUREMENT,
+                                accuracy_decimals=1,
                             ),
                             # Per-phase voltage sensors (V)
                             cv.Optional(CONF_METER_VOLTAGE_PHASE_A): sensor.sensor_schema(
@@ -590,7 +600,7 @@ async def to_code(config):
                     evse_conf[CONF_SESSION_CURRENT],
                     min_value=0.0,
                     max_value=evse_max_limit,
-                    step=1.0,
+                    step=0.01,  # E0 session setpoint is encoded in centiamps
                 )
 
             session_current_sensor_ent = cg.nullptr
@@ -713,7 +723,7 @@ async def to_code(config):
                     evse_conf[CONF_OFFERED_CURRENT],
                     min_value=0.0,
                     max_value=evse_max_limit,
-                    step=1.0,
+                    step=0.01,  # E0 offered/session current is encoded in centiamps
                 )
             evcc_watchdog_ok = cg.nullptr
             if CONF_EVCC_WATCHDOG_OK in evse_conf:

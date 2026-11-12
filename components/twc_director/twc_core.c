@@ -25,6 +25,8 @@ uint16_t twc_controller_get_master_address(void) {
 // =============================================================================
 
 static void reconcile_session_current_allocation(twc_core_t *core, uint16_t priority_address);
+static void log_meter_frame_(twc_core_t *core, uint16_t src_address,
+                             const uint8_t *payload, size_t payload_len);
 
 // =============================================================================
 // DEVICE REGISTRY
@@ -178,6 +180,50 @@ void twc_core_set_master_mode(twc_core_t *core, bool enabled) {
 }
 
 // =============================================================================
+// METER FRAME DEBUG LOG
+// =============================================================================
+
+// Logs EB/meter raw payload plus decoded V/A at DEBUG. One decimal for
+// currents matches the frame's 0.5 A units; voltages are whole volts.
+static void log_meter_frame_(twc_core_t *core, uint16_t src_address,
+                             const uint8_t *payload, size_t payload_len) {
+  if (!core || !core->log_cb) {
+    return;
+  }
+
+  char hex_buf[80];
+  int pos = 0;
+  hex_buf[0] = '\0';
+  if (payload != NULL && payload_len > 0) {
+    const size_t dump_len = (payload_len > 15) ? 15 : payload_len;
+    for (size_t i = 0; i < dump_len && pos < (int)sizeof(hex_buf) - 4; i++) {
+      pos += snprintf(hex_buf + pos, sizeof(hex_buf) - (size_t)pos, "%s%02X",
+                      (i == 0) ? "" : " ", payload[i]);
+    }
+    if (payload_len > dump_len && pos < (int)sizeof(hex_buf) - 4) {
+      snprintf(hex_buf + pos, sizeof(hex_buf) - (size_t)pos, " ...");
+    }
+  }
+
+  char msg[256];
+  twc_meter_data_t meter;
+  if (twc_decode_meter_payload(payload, payload_len, &meter)) {
+    snprintf(msg, sizeof(msg),
+             "EB meter src=0x%04X raw=%s L1=%.0fV/%.1fA L2=%.0fV/%.1fA L3=%.0fV/%.1fA energy=%.0fkWh",
+             src_address, hex_buf,
+             meter.phase_l1_v, meter.phase_l1_a,
+             meter.phase_l2_v, meter.phase_l2_a,
+             meter.phase_l3_v, meter.phase_l3_a,
+             meter.total_energy_kwh);
+  } else {
+    snprintf(msg, sizeof(msg),
+             "EB meter src=0x%04X decode_failed len=%u raw=%s",
+             src_address, (unsigned)payload_len, hex_buf);
+  }
+  core->log_cb(TWC_LOG_DEBUG, msg, core->log_user);
+}
+
+// =============================================================================
 // RX PATH
 // =============================================================================
 
@@ -255,6 +301,10 @@ bool twc_core_handle_frame(twc_core_t *core,
 
   // Update device state from frame
   twc_device_update_from_frame(&dev->device, header, payload, payload_len, cmd, now_ms);
+
+  if (cmd == TWC_CMD_METER) {
+    log_meter_frame_(core, src_address, payload, payload_len);
+  }
 
   // Detect new peripheral for auto-binding
   twc_mode_t new_mode = twc_device_get_mode(&dev->device);

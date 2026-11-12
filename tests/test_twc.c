@@ -37,8 +37,21 @@ static size_t hex(const char *s, uint8_t *out) {
 }
 
 // ---------------------------------------------------------------------------
-// Meter decode
+// Meter and heartbeat current scaling
 // ---------------------------------------------------------------------------
+
+// Build a 15-byte EB payload with known volts / current-units and decode it.
+static void decode_meter_units(uint8_t i1, uint8_t i2, uint8_t i3, twc_meter_data_t *m) {
+  uint8_t pl[15] = {
+      0, 0, 0, 0,
+      0x00, 0xE4, 0x00, 0xE4, 0x00, 0xE4,
+      i1, i2, i3, 0, 0};
+  CHECK(twc_decode_meter_payload(pl, sizeof(pl), m));
+  CHECK_NEAR(m->phase_l1_v, 228);
+  CHECK_NEAR(m->phase_l2_v, 228);
+  CHECK_NEAR(m->phase_l3_v, 228);
+}
+
 static void test_meter_decode(void) {
   uint8_t f[64];
   size_t n;
@@ -46,15 +59,20 @@ static void test_meter_decode(void) {
   size_t pl_len;
   twc_meter_data_t m;
 
-  // Car charging, 0x8988
+  // Real capture, car charging, 0x8988. Currents 0x16,0x16,0x17 = 11.0, 11.0, 11.5 A
+  // (uint8 in 0.5 A units). 0x16 as 22 A, 1.6 A or 0.22 A would not match ~7.6 kW.
   n = hex("FD EB 89 88 00 00 87 1A 00 E4 00 E4 00 E4 16 16 17 00 00 8C", f);
   CHECK(twc_decode_frame(f, n, &hdr, &pl, &pl_len));
   CHECK(twc_decode_meter_payload(pl, pl_len, &m));
   CHECK_NEAR(m.total_energy_kwh, 34586);
   CHECK_NEAR(m.phase_l1_v, 228); CHECK_NEAR(m.phase_l2_v, 228); CHECK_NEAR(m.phase_l3_v, 228);
   CHECK_NEAR(m.phase_l1_a, 11.0); CHECK_NEAR(m.phase_l2_a, 11.0); CHECK_NEAR(m.phase_l3_a, 11.5);
+  // Guard wrong scales: byte 0x16 is 11.0 A, not 22 / 1.6 / 0.22.
+  CHECK(fabsf(m.phase_l1_a - 22.0f) > 1.0f);
+  CHECK(fabsf(m.phase_l1_a - 1.6f) > 0.1f);
+  CHECK(fabsf(m.phase_l1_a - 0.22f) > 0.1f);
 
-  // Idle, 0x9983
+  // Real capture, idle, 0x9983
   n = hex("FD EB 99 83 00 00 1D 8F 00 E6 00 E6 00 E5 00 00 00 00 00 64", f);
   CHECK(twc_decode_frame(f, n, &hdr, &pl, &pl_len));
   CHECK(twc_decode_meter_payload(pl, pl_len, &m));
@@ -62,9 +80,38 @@ static void test_meter_decode(void) {
   CHECK_NEAR(m.phase_l1_v, 230); CHECK_NEAR(m.phase_l2_v, 230); CHECK_NEAR(m.phase_l3_v, 229);
   CHECK_NEAR(m.phase_l1_a, 0); CHECK_NEAR(m.phase_l2_a, 0); CHECK_NEAR(m.phase_l3_a, 0);
 
+  // Synthetic unit scale: 0, 0.5, 13.0, 13.5, 20.0, 127.5 A (max uint8 / 2)
+  decode_meter_units(0x00, 0x01, 0x1A, &m);
+  CHECK_NEAR(m.phase_l1_a, 0.0f);
+  CHECK_NEAR(m.phase_l2_a, 0.5f);
+  CHECK_NEAR(m.phase_l3_a, 13.0f);
+  decode_meter_units(0x1B, 0x28, 0xFF, &m);
+  CHECK_NEAR(m.phase_l1_a, 13.5f);
+  CHECK_NEAR(m.phase_l2_a, 20.0f);
+  CHECK_NEAR(m.phase_l3_a, 127.5f);
+
   // Too short payload is rejected
   CHECK(!twc_decode_meter_payload(pl, 14, &m));
 }
+
+static void test_heartbeat_current_scale(void) {
+  // E0: current_available / current_delivered are uint16 centiamps (0.01 A).
+  uint8_t pl[11] = {0xF0, 0x0D, 0x01, 0x05, 0x14, 0x05, 0x47, 0, 0, 0, 0};
+  twc_heartbeat_data_t hb;
+  CHECK(twc_decode_heartbeat_payload(pl, sizeof(pl), &hb));
+  CHECK(hb.current_available_centiamps == 1300);   // 0x0514 = 13.00 A
+  CHECK(hb.current_delivered_centiamps == 1351);   // 0x0547 = 13.51 A
+  CHECK_NEAR((float)hb.current_available_centiamps / 100.0f, 13.00f);
+  CHECK_NEAR((float)hb.current_delivered_centiamps / 100.0f, 13.51f);
+
+  // E2: peripheral negotiation current_available is also centiamps.
+  uint8_t e2[11] = {0x01, 0x0C, 0x80, 0, 0, 0, 0, 0, 0, 0, 0};
+  twc_peripheral_negotiation_data_t pn;
+  CHECK(twc_decode_peripheral_negotiation_payload(e2, sizeof(e2), &pn));
+  CHECK(pn.current_available_centiamps == 3200);
+  CHECK_NEAR((float)pn.current_available_centiamps / 100.0f, 32.00f);
+}
+
 
 // ---------------------------------------------------------------------------
 // Core: session current (0x09) delivery
@@ -223,8 +270,49 @@ static void test_global_max_scaling_kept(void) {
   CHECK_NEAR(b->applied_session_current_a, 12.0f);
 }
 
+typedef struct {
+  twc_log_level_t levels[16];
+  char msgs[16][256];
+  int count;
+} log_cap_t;
+
+static void log_cap_cb(twc_log_level_t level, const char *message, void *user) {
+  log_cap_t *c = (log_cap_t *)user;
+  if (!c || c->count >= 16) return;
+  c->levels[c->count] = level;
+  snprintf(c->msgs[c->count], sizeof(c->msgs[c->count]), "%s", message ? message : "");
+  c->count++;
+}
+
+static void test_meter_debug_log(void) {
+  twc_core_t c;
+  tx_log_t l;
+  log_cap_t logs;
+  init_core(&c, &l);
+  memset(&logs, 0, sizeof(logs));
+  twc_core_set_log_callback(&c, log_cap_cb, &logs);
+
+  // Real charging capture: must log type, hex, and decoded 11.0/11.0/11.5 A at DEBUG.
+  rx(&c, "FD EB 89 88 00 00 87 1A 00 E4 00 E4 00 E4 16 16 17 00 00 8C", 1000);
+  int found = 0;
+  for (int i = 0; i < logs.count; i++) {
+    if (logs.levels[i] != TWC_LOG_DEBUG) continue;
+    if (strstr(logs.msgs[i], "EB meter") == NULL) continue;
+    found++;
+    CHECK(strstr(logs.msgs[i], "src=0x8988") != NULL);
+    CHECK(strstr(logs.msgs[i], "00 00 87 1A 00 E4 00 E4 00 E4 16 16 17 00 00") != NULL);
+    CHECK(strstr(logs.msgs[i], "L1=228V/11.0A") != NULL);
+    CHECK(strstr(logs.msgs[i], "L2=228V/11.0A") != NULL);
+    CHECK(strstr(logs.msgs[i], "L3=228V/11.5A") != NULL);
+    CHECK(strstr(logs.msgs[i], "energy=34586kWh") != NULL);
+  }
+  CHECK(found == 1);
+}
+
 int main(void) {
   test_meter_decode();
+  test_heartbeat_current_scale();
+  test_meter_debug_log();
   test_session_current_reaches_twc();
   test_resend_stops_when_matching();
   test_zero_amps_is_sent_while_charging();
