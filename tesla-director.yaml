@@ -233,6 +233,8 @@ twc_director:
       max_current_sensor:
         name: "diag max current reported by box"
       session_current_sensor:
+        name: "meter current max phase"
+      setpoint_sent_sensor:
         name: "diag current setpoint sent"
       charge_enable:
         id: twc_0_evcc_charge_enable
@@ -304,6 +306,8 @@ twc_director:
       max_current_sensor:
         name: "diag max current reported by box"
       session_current_sensor:
+        name: "meter current max phase"
+      setpoint_sent_sensor:
         name: "diag current setpoint sent"
       charge_enable:
         id: twc_1_evcc_charge_enable

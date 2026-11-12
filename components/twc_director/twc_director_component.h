@@ -202,6 +202,7 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
                 sensor::Sensor *max_current_sensor,
                 number::Number *session_current,
                 sensor::Sensor *session_current_sensor,
+                sensor::Sensor *setpoint_sent_sensor,
                 text_sensor::TextSensor *mode,
                 text_sensor::TextSensor *status_text,
                 text_sensor::TextSensor *status_log,
@@ -340,6 +341,7 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
     sensor::Sensor *max_current_sensor{nullptr};
     number::Number *session_current{nullptr};
     sensor::Sensor *session_current_sensor{nullptr};
+    sensor::Sensor *setpoint_sent_sensor{nullptr};
     text_sensor::TextSensor *mode{nullptr};
     text_sensor::TextSensor *status_text{nullptr};
     text_sensor::TextSensor *status_log{nullptr};
@@ -385,6 +387,7 @@ class TWCDirectorComponent : public Component, public uart::UARTDevice {
   };
 
   // Helper methods that avoid redundant entity updates.
+  void publish_setpoint_sent_(EvseEntry &evse, const twc_core_device_t *core_dev);
   void publish_binary_sensor_if_changed_(binary_sensor::BinarySensor *sensor, bool value);
   void publish_sensor_if_changed_(sensor::Sensor *sensor, float value, float epsilon = 0.01f);
   void publish_text_sensor_if_changed_(text_sensor::TextSensor *sensor, const std::string &value);

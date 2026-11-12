@@ -175,6 +175,11 @@ struct twc_core_device {
   float last_session_current_cmd_a;
   uint32_t last_session_cmd_tx_ms;  // When the last 0x09 frame was sent (0 = never)
   uint8_t  session_mismatch_resends; // Consecutive fast resends while TWC reports a different limit
+  // Last 0x05/0x09 current actually transmitted on the bus (centiamp-rounded).
+  // has_sent_setpoint is false until the first such frame is sent.
+  bool    has_sent_setpoint;
+  float   last_sent_setpoint_a;
+  uint8_t last_sent_setpoint_cmd;  // 0x05 or 0x09
   bool  pending_increase_current_cmd;
   bool  pending_decrease_current_cmd;
 
@@ -334,6 +339,12 @@ float twc_core_get_desired_session_current(const twc_core_t *core,
 
 float twc_core_get_applied_initial_current(const twc_core_t *core,
                                            const twc_core_device_t *dev);
+
+// Last current actually placed on the bus in a 0x05 or 0x09 heartbeat.
+// has_sent_setpoint is false (and get returns 0) until the first such TX.
+bool    twc_core_has_sent_setpoint(const twc_core_device_t *dev);
+float   twc_core_get_last_sent_setpoint_a(const twc_core_device_t *dev);
+uint8_t twc_core_get_last_sent_setpoint_cmd(const twc_core_device_t *dev);
 
 uint32_t twc_core_get_restart_counter(const twc_core_device_t *dev);
 

@@ -134,8 +134,13 @@ som evcc:s styr- eller statusfält:
   (`diag rs485 logging`), watchdog-status (`diag watchdog ok`),
   råstatus (`diag state raw` / `diag state log`), strömmen boxen
   rapporterar som tillgänglig (`diag current offered by box`),
-  strömmen Director senast skickade (`diag current setpoint sent`) och
-  boxens rapporterade maxtak (`diag max current reported by box`).
+  strömmen Director senast skickade i ett 0x05/0x09-kommando
+  (`diag current setpoint sent`) och boxens rapporterade maxtak
+  (`diag max current reported by box`). Max av fasströmmarna ligger
+  under `meter current max phase`. Om du uppgraderar från en version
+  där `diag current setpoint sent` visade max fasström, se
+  migreringsavsnittet i [README.md](../README.md) — den nya
+  setpointsensorn ärver typiskt samma entity_id och historik.
   Använd dem för felsökning, inte som evcc:s `setMaxCurrent` eller
   `status`.
 - **`info`** — identitet från boxen (`info serial number`,

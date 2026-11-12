@@ -172,7 +172,7 @@ Entitetsnamnen är på **engelska** och har formen `<prefix> <namn>` (betydelsen
 | Prefix | Betydelse | Skrivs av | Kategori i HA | Exempel |
 |--------|-----------|-----------|---------------|---------|
 | `evcc` | det evcc skriver/läser | evcc | normal | `evcc charging enabled`, `evcc current limit` |
-| `meter` | uppmätta värden, skrivskyddade | Director (RS-485) | normal | `meter current L1`, `meter voltage L1`, `meter power`, `meter energy total`, `meter energy session` |
+| `meter` | uppmätta värden, skrivskyddade | Director (RS-485) | normal | `meter current L1`, `meter current max phase`, `meter voltage L1`, `meter power`, `meter energy total`, `meter energy session` |
 | `state` | box-/bilstatus | Director (RS-485) | normal | `state charge` (A/B/C/F), `state charge text`, `state charging`, `state car connected`, `state VIN`, `state online`, `state mode`, `state contactor closed` |
 | `limit` | säkerhetstak som alltid gäller | du / YAML vid boot | config | `limit max current`, `limit global max current` |
 | `local` | låter Director köra utan evcc | du / YAML vid boot | config | `local start current`, `local current setpoint`, `local increase current`, `local decrease current` |
@@ -184,7 +184,37 @@ Regler: **evcc-entiteter är aldrig `diag`/`config`** (de ska synas som vanliga 
 
 **Entity-id (härlett, inte avläst från en flashad enhet):** Home Assistant:s ESPHome-integration sätter `has_entity_name` och kopplar boxentiteterna till underenheten. Entity-id blir då `<domän>.<enhetsslug>_<entitetsslug>`. För enheten ”S22 Garage Ute” och entiteten ”evcc current limit” blir det `number.s22_garage_ute_evcc_current_limit`. Samma mönster finns i HA:s egna tester (enhet ”Motion Sensor” + entitet ”Motion” → `binary_sensor.motion_sensor_motion`). ESPHome:s `object_id` är bara det sanerade entitetsnamnet (`evcc_current_limit`); två boxar med samma namn krockar inte eftersom unique_id får suffix `@device_id`. Globala entiteter på huvudkortet blir t.ex. `switch.tesla_director_system_master_mode`. Byter du namn på enheten i HA ändras nya entity-id.
 
-> **Migrering:** den här ändringen ger **nya** entiteter (nytt namn och ny unique_id). Ta bort de gamla, otillgängliga under Tesla-Director (och ev. de nya underenheterna om något fått suffix `_2`). Uppdatera evcc:s fält till de nya id:na, se [docs/evcc-setup.md](docs/evcc-setup.md).
+> **Migrering (äldre namnstandard):** den tidigare översättningen till engelska namn gav **nya** entiteter (nytt namn och ny unique_id). Ta bort de gamla, otillgängliga under Tesla-Director (och ev. de nya underenheterna om något fått suffix `_2`). Uppdatera evcc:s fält till de nya id:na, se [docs/evcc-setup.md](docs/evcc-setup.md).
+
+### Migrering: `diag current setpoint sent` och `meter current max phase`
+
+**Hur entity_id och unique_id bildas.** De kommer från entitetsnamnet (`name:` i YAML), inte från YAML-nyckeln (`session_current_sensor` / `setpoint_sent_sensor`). Home Assistant:s ESPHome-integration sätter `has_entity_name` och slår ihop underenhetens namn med entitetsnamnet:
+
+```text
+entity_id  = <domän>.<enhetsslug>_<entitetsslug>
+unique_id  = <mac>-sensor-<object_id>@<device_id>
+object_id  = sanitiserat entitetsnamn (gemener, mellanslag → understreck)
+```
+
+`<mac>` är ESP:ns MAC, `<device_id>` är underenhetens nyckel (från `device_id: twc_0_device` / `twc_1_device`). Huvudkortets `esphome.name` (`tesla-director`) används inte som prefix på boxentiteterna. Exempel för enheten ”S22 Garage Ute”:
+
+| Roll | YAML-nyckel | `name:` | entity_id | unique_id (object_id-delen) |
+|------|-------------|---------|-----------|-----------------------------|
+| **Före** (max av fasströmmarna, fel namn) | `session_current_sensor` | `diag current setpoint sent` | `sensor.s22_garage_ute_diag_current_setpoint_sent` | `<mac>-sensor-diag_current_setpoint_sent@<device_id>` |
+| **Efter** (samma mätvärde, rätt namn) | `session_current_sensor` | `meter current max phase` | `sensor.s22_garage_ute_meter_current_max_phase` | `<mac>-sensor-meter_current_max_phase@<device_id>` |
+| **Efter** (ny: applicerad 0x05/0x09-gräns) | `setpoint_sent_sensor` | `diag current setpoint sent` | `sensor.s22_garage_ute_diag_current_setpoint_sent` | `<mac>-sensor-diag_current_setpoint_sent@<device_id>` |
+
+Samma mönster för Inne: byt `s22_garage_ute` mot `s22_garage_inne` och `@<device_id>` mot den andra underenheten. Byter du enhetsnamn i HA ändras nya entity-id.
+
+**Risk för förväxling i historiken.** Den nya sensorn tar det **gamla namnet**, och därmed samma `object_id` / `unique_id` (och typiskt samma `entity_id`) som den gamla max-fas-sensorn. Home Assistant behandlar den som *samma* entitet: historik och statistik som tidigare var max(L1,L2,L3) ligger kvar på `sensor.<enhet>_diag_current_setpoint_sent` och blandas med de nya setpoint-värdena efter flash. Den omdöpta `meter current max phase` får ny unique_id och **tom** historik.
+
+Gör så här vid uppgradering:
+
+1. Uppdatera YAML: byt `name` på `session_current_sensor` till `meter current max phase` och lägg till `setpoint_sent_sensor` med `name: "diag current setpoint sent"` (som i `tesla-director.yaml`). YAML-nyckeln `session_current_sensor` är oförändrad. Utan namnbytet i en egen kopia av YAML:n skulle båda sensorerna heta likadant.
+2. Flashs. Efteråt: ta bort den ev. *unavailable* gamla posten bara om HA skapat en dubblett med suffix `_2`. Den levande `diag current setpoint sent` är den nya setpointsensorn och ska vara kvar.
+3. Räkna inte med att historiken på `diag current setpoint sent` är jämförbar före och efter flash. Om du behöver ren statistik: rensa Recorder-statistiken för den entiteten, eller acceptera brottet. Max-fas-historiken följer *inte* med till `meter current max phase`.
+4. Innan första 0x05/0x09 gått ut på bussen visar den nya sensorn `unknown` (inte 0 A).
+5. evcc ska fortfarande inte skriva till de här sensorerna. Se [docs/evcc-setup.md](docs/evcc-setup.md).
 
 ### Home Assistant → evcc
 

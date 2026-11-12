@@ -824,6 +824,14 @@ static bool send_heartbeat(twc_core_t *core, uint32_t now_ms) {
     core->tx_cb(frame, frame_len, core->tx_user);
     core->last_e0_heartbeat_ms = now_ms;
 
+    // Record the current that actually went out in a 0x05 / 0x09 command
+    // (centiamp rounding included). NOP / 0x06 / 0x07 do not update this.
+    if (charge_state == 0x05u || charge_state == 0x09u) {
+      dev->has_sent_setpoint = true;
+      dev->last_sent_setpoint_a = (float)available_centiamps / 100.0f;
+      dev->last_sent_setpoint_cmd = charge_state;
+    }
+
     // Clear pending flags after successful send
     if (charge_state == 0x05u) {
       dev->pending_initial_current_cmd = false;
@@ -995,6 +1003,18 @@ float twc_core_get_applied_initial_current(const twc_core_t *core,
                                            const twc_core_device_t *dev) {
   (void)core;
   return dev ? dev->applied_initial_current_a : 0.0f;
+}
+
+bool twc_core_has_sent_setpoint(const twc_core_device_t *dev) {
+  return dev && dev->has_sent_setpoint;
+}
+
+float twc_core_get_last_sent_setpoint_a(const twc_core_device_t *dev) {
+  return (dev && dev->has_sent_setpoint) ? dev->last_sent_setpoint_a : 0.0f;
+}
+
+uint8_t twc_core_get_last_sent_setpoint_cmd(const twc_core_device_t *dev) {
+  return (dev && dev->has_sent_setpoint) ? dev->last_sent_setpoint_cmd : 0u;
 }
 
 uint32_t twc_core_get_restart_counter(const twc_core_device_t *dev) {

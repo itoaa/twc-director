@@ -143,6 +143,19 @@ static int last_hb(const tx_log_t *l, uint16_t addr, unsigned *avail) {
   return -1;
 }
 
+// Last 0x05 or 0x09 heartbeat sent to addr. Ignores later NOP (state 0) beats.
+static int last_setpoint_hb(const tx_log_t *l, uint16_t addr, unsigned *avail) {
+  for (int i = l->count - 1; i >= 0; --i) {
+    const uint8_t *f = l->frames[i];
+    if (f[0] == 0xFB && f[1] == 0xE0 && f[4] == (addr >> 8) && f[5] == (addr & 0xFF) &&
+        (f[6] == 0x05 || f[6] == 0x09)) {
+      *avail = ((unsigned)f[7] << 8) | f[8];
+      return f[6];
+    }
+  }
+  return -1;
+}
+
 static void rx(twc_core_t *c, const char *h, uint32_t now) {
   uint8_t f[64];
   size_t n = hex(h, f);
@@ -309,6 +322,100 @@ static void test_meter_debug_log(void) {
   CHECK(found == 1);
 }
 
+// ---------------------------------------------------------------------------
+// Last sent 0x05 / 0x09 setpoint (centiamp-rounded, after clamp)
+// ---------------------------------------------------------------------------
+static void test_setpoint_sent_not_before_tx(void) {
+  twc_core_t c; tx_log_t l;
+  init_core(&c, &l);
+  CHECK(!twc_core_has_sent_setpoint(twc_core_get_device_by_address(&c, 0x8988)));
+
+  rx(&c, "FD E0 89 88 F0 0D 01 05 DC 04 92 00 00 00 00 66", 1000);
+  twc_core_device_t *d = twc_core_get_device_by_address(&c, 0x8988);
+  CHECK(d != NULL);
+  CHECK(!twc_core_has_sent_setpoint(d));
+
+  twc_core_set_desired_session_current(&c, 0x8988, 12.0f);
+  CHECK_NEAR(d->applied_session_current_a, 12.0f);
+  // Applied is computed immediately; nothing has been placed on the bus yet.
+  CHECK(!twc_core_has_sent_setpoint(d));
+}
+
+static void test_setpoint_sent_09_centiamps(void) {
+  twc_core_t c; tx_log_t l;
+  init_core(&c, &l);
+  rx(&c, "FD E0 89 88 F0 0D 01 05 DC 04 92 00 00 00 00 66", 1000);
+  twc_core_set_desired_session_current(&c, 0x8988, 13.51f);
+  run_ticks(&c, 1000, 4000);
+
+  twc_core_device_t *d = twc_core_get_device_by_address(&c, 0x8988);
+  CHECK(twc_core_has_sent_setpoint(d));
+  CHECK(twc_core_get_last_sent_setpoint_cmd(d) == 0x09u);
+  CHECK_NEAR(twc_core_get_last_sent_setpoint_a(d), 13.51f);
+
+  unsigned avail = 0;
+  int st = last_setpoint_hb(&l, 0x8988, &avail);
+  CHECK(st == 0x09);
+  CHECK(avail == 1351);
+  CHECK_NEAR((float)avail / 100.0f, twc_core_get_last_sent_setpoint_a(d));
+}
+
+static void test_setpoint_sent_05_centiamps(void) {
+  twc_core_t c; tx_log_t l;
+  init_core(&c, &l);
+  // Ready / not charging, so 0x09 is not pending; 0x05 can go out.
+  rx_e0(&c, 0x8988, 0x00, 0, 0, 1000);
+  twc_core_set_desired_initial_current(&c, 0x8988, 13.51f);
+  twc_core_device_t *d = twc_core_get_device_by_address(&c, 0x8988);
+  CHECK(!twc_core_has_sent_setpoint(d));
+  run_ticks(&c, 1000, 4000);
+
+  CHECK(twc_core_has_sent_setpoint(d));
+  CHECK(twc_core_get_last_sent_setpoint_cmd(d) == 0x05u);
+  CHECK_NEAR(twc_core_get_last_sent_setpoint_a(d), 13.51f);
+
+  bool seen05 = false;
+  unsigned avail = 0;
+  for (int i = 0; i < l.count; i++) {
+    const uint8_t *f = l.frames[i];
+    if (f[0] == 0xFB && f[1] == 0xE0 && f[6] == 0x05) {
+      seen05 = true;
+      avail = ((unsigned)f[7] << 8) | f[8];
+    }
+  }
+  CHECK(seen05);
+  CHECK(avail == 1351);
+}
+
+static void test_setpoint_sent_clamped(void) {
+  twc_core_t c; tx_log_t l;
+  init_core(&c, &l);
+  twc_core_set_max_current(&c, 0x9983, 15.0f);
+  rx(&c, "FD E0 89 88 F0 0D 01 05 DC 04 92 00 00 00 00 66", 1000);
+  rx_e0(&c, 0x9983, 0x01, 1500, 1170, 1000);
+  // 9983 is set last, so it is the priority device and keeps 12 A; 8988 is clamped to 3 A.
+  twc_core_set_desired_session_current(&c, 0x8988, 12.0f);
+  twc_core_set_desired_session_current(&c, 0x9983, 12.0f);
+  twc_core_device_t *a = twc_core_get_device_by_address(&c, 0x8988);
+  twc_core_device_t *b = twc_core_get_device_by_address(&c, 0x9983);
+  CHECK_NEAR(b->applied_session_current_a, 12.0f);
+  CHECK_NEAR(a->applied_session_current_a, 3.0f);
+  CHECK(!twc_core_has_sent_setpoint(a));
+
+  run_ticks(&c, 1000, 8000);
+  CHECK(twc_core_has_sent_setpoint(a));
+  CHECK(twc_core_get_last_sent_setpoint_cmd(a) == 0x09u);
+  CHECK_NEAR(twc_core_get_last_sent_setpoint_a(a), 3.00f);
+  CHECK(twc_core_has_sent_setpoint(b));
+  CHECK_NEAR(twc_core_get_last_sent_setpoint_a(b), 12.00f);
+
+  unsigned avail_a = 0, avail_b = 0;
+  CHECK(last_setpoint_hb(&l, 0x8988, &avail_a) == 0x09);
+  CHECK(last_setpoint_hb(&l, 0x9983, &avail_b) == 0x09);
+  CHECK(avail_a == 300);
+  CHECK(avail_b == 1200);
+}
+
 int main(void) {
   test_meter_decode();
   test_heartbeat_current_scale();
@@ -317,6 +424,10 @@ int main(void) {
   test_resend_stops_when_matching();
   test_zero_amps_is_sent_while_charging();
   test_global_max_scaling_kept();
+  test_setpoint_sent_not_before_tx();
+  test_setpoint_sent_09_centiamps();
+  test_setpoint_sent_05_centiamps();
+  test_setpoint_sent_clamped();
   if (g_failures) {
     printf("%d check(s) failed\n", g_failures);
     return 1;

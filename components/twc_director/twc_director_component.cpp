@@ -558,6 +558,12 @@ void TWCDirectorComponent::update_evse_sensors_(EvseEntry &evse, uint32_t now) {
   
   const twc_device_t *dev = &core_dev->device;
   
+  // Applied 0x05/0x09 setpoint actually transmitted. Independent of the
+  // meter throttle and of online state: it is what we last put on the bus.
+  // Until the first 0x05/0x09 is sent the sensor is left without a state
+  // (HA: unknown), including a legitimate later 0.00 A send.
+  this->publish_setpoint_sent_(evse, core_dev);
+
   // Online status
   bool online = twc_core_device_online(&this->core_, core_dev, now);
   this->publish_binary_sensor_if_changed_(evse.online, online);
@@ -1068,6 +1074,15 @@ void TWCDirectorComponent::publish_binary_sensor_if_changed_(
   }
 }
 
+void TWCDirectorComponent::publish_setpoint_sent_(EvseEntry &evse,
+                                                  const twc_core_device_t *core_dev) {
+  if (!evse.setpoint_sent_sensor || !core_dev) return;
+  if (!twc_core_has_sent_setpoint(core_dev)) return;
+  // 0.005 A is half a centiamp — publish on real 0.01 A steps, not resends.
+  this->publish_sensor_(evse.setpoint_sent_sensor,
+                        twc_core_get_last_sent_setpoint_a(core_dev), 0.005f);
+}
+
 void TWCDirectorComponent::publish_sensor_(sensor::Sensor *sensor,
                                            float value,
                                            float epsilon) {
@@ -1336,6 +1351,7 @@ void TWCDirectorComponent::add_evse(
     sensor::Sensor *max_current_sensor,
     number::Number *session_current,
     sensor::Sensor *session_current_sensor,
+    sensor::Sensor *setpoint_sent_sensor,
     text_sensor::TextSensor *mode,
     text_sensor::TextSensor *status_text,
     text_sensor::TextSensor *status_log,
@@ -1372,6 +1388,7 @@ void TWCDirectorComponent::add_evse(
   entry.max_current_sensor = max_current_sensor;
   entry.session_current = session_current;
   entry.session_current_sensor = session_current_sensor;
+  entry.setpoint_sent_sensor = setpoint_sent_sensor;
 
   if (contactor) contactor->set_parent(this, address);
 
