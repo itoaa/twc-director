@@ -157,7 +157,7 @@ def _evse_preprocess(config):
     _ensure_named_child(config, CONF_SESSION_CURRENT, "local current setpoint", "config")
     # Max of L1/L2/L3 from the EB meter frame — a meter reading, not diagnostic.
     _ensure_named_child(config, CONF_SESSION_CURRENT_SENSOR, "meter current max phase")
-    _ensure_named_child(config, CONF_SETPOINT_SENT_SENSOR, "diag current setpoint sent", "diagnostic")
+    _ensure_named_child(config, CONF_SETPOINT_SENT_SENSOR, "diag current limit sent", "diagnostic")
     _ensure_named_child(config, CONF_MODE, "state mode")
     _ensure_named_child(config, CONF_STATUS_TEXT, "diag state raw", "diagnostic")
     _ensure_named_child(config, CONF_STATUS_LOG, "diag state log", "diagnostic")
