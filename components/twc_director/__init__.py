@@ -93,6 +93,7 @@ CONF_MAX_CURRENT = "max_current"
 CONF_MAX_CURRENT_SENSOR = "max_current_sensor"
 CONF_SESSION_CURRENT = "session_current"
 CONF_SESSION_CURRENT_SENSOR = "session_current_sensor"
+CONF_SETPOINT_SENT_SENSOR = "setpoint_sent_sensor"
 CONF_MODE = "mode"
 CONF_STATUS_TEXT = "status_text"
 CONF_STATUS_LOG = "status_log"
@@ -154,7 +155,9 @@ def _evse_preprocess(config):
     _ensure_named_child(config, CONF_MAX_CURRENT, "limit max current", "config")
     _ensure_named_child(config, CONF_MAX_CURRENT_SENSOR, "diag max current reported by box", "diagnostic")
     _ensure_named_child(config, CONF_SESSION_CURRENT, "local current setpoint", "config")
-    _ensure_named_child(config, CONF_SESSION_CURRENT_SENSOR, "diag current setpoint sent", "diagnostic")
+    # Max of L1/L2/L3 from the EB meter frame — a meter reading, not diagnostic.
+    _ensure_named_child(config, CONF_SESSION_CURRENT_SENSOR, "meter current max phase")
+    _ensure_named_child(config, CONF_SETPOINT_SENT_SENSOR, "diag current limit sent", "diagnostic")
     _ensure_named_child(config, CONF_MODE, "state mode")
     _ensure_named_child(config, CONF_STATUS_TEXT, "diag state raw", "diagnostic")
     _ensure_named_child(config, CONF_STATUS_LOG, "diag state log", "diagnostic")
@@ -333,6 +336,14 @@ CONFIG_SCHEMA = (
                                 state_class=STATE_CLASS_MEASUREMENT,
                                 # Published as max(L1,L2,L3) from the EB meter frame (0.5 A steps).
                                 accuracy_decimals=1,
+                            ),
+                            # Applied current last placed on the bus in a 0x05 or 0x09 command.
+                            cv.Optional(CONF_SETPOINT_SENT_SENSOR): sensor.sensor_schema(
+                                unit_of_measurement=UNIT_AMPERE,
+                                icon=ICON_CURRENT_AC,
+                                device_class=DEVICE_CLASS_CURRENT,
+                                state_class=STATE_CLASS_MEASUREMENT,
+                                accuracy_decimals=2,
                             ),
                             cv.Optional(CONF_MODE): text_sensor.text_sensor_schema(),
                             cv.Optional(CONF_STATUS_TEXT): text_sensor.text_sensor_schema(
@@ -609,6 +620,12 @@ async def to_code(config):
                     evse_conf[CONF_SESSION_CURRENT_SENSOR]
                 )
 
+            setpoint_sent_sensor_ent = cg.nullptr
+            if CONF_SETPOINT_SENT_SENSOR in evse_conf:
+                setpoint_sent_sensor_ent = await sensor.new_sensor(
+                    evse_conf[CONF_SETPOINT_SENT_SENSOR]
+                )
+
             mode_text = cg.nullptr
             if CONF_MODE in evse_conf:
                 mode_text = await text_sensor.new_text_sensor(
@@ -756,6 +773,7 @@ async def to_code(config):
                     max_current_sensor_ent,
                     session_current_num,
                     session_current_sensor_ent,
+                    setpoint_sent_sensor_ent,
                     mode_text,
                     status_text,
                     status_log,

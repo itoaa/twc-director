@@ -48,6 +48,23 @@ jobs:
           sed -i 's/^[[:space:]]*//' secrets.yaml
           cat secrets.yaml
 
+      # tesla-director.yaml pins external_components to git ref: main for
+      # production flashes. CI must compile this PR's own component, or new
+      # YAML keys are rejected against the already-merged schema.
+      - name: Point YAML at the local component
+        run: |
+          python3 -c '
+          from pathlib import Path
+          p = Path("tesla-director.yaml")
+          text = p.read_text()
+          old = "type: git\n      url: https://github.com/itoaa/twc-director.git\n      ref: main"
+          new = "type: local\n      path: components"
+          n = text.count(old)
+          if n != 1:
+              raise SystemExit("external_components git ref block not unique (%d)" % n)
+          p.write_text(text.replace(old, new, 1))
+          '
+
       - name: Build firmware
         uses: esphome/build-action@v8.0.0
         with:

@@ -134,8 +134,12 @@ som evcc:s styr- eller statusfält:
   (`diag rs485 logging`), watchdog-status (`diag watchdog ok`),
   råstatus (`diag state raw` / `diag state log`), strömmen boxen
   rapporterar som tillgänglig (`diag current offered by box`),
-  strömmen Director senast skickade (`diag current setpoint sent`) och
-  boxens rapporterade maxtak (`diag max current reported by box`).
+  strömmen Director senast skickade i ett 0x05/0x09-kommando
+  (`diag current limit sent`) och boxens rapporterade maxtak
+  (`diag max current reported by box`). Max av fasströmmarna ligger
+  under `meter current max phase`. Vid uppgradering blir den gamla
+  entiteten `diag current setpoint sent` otillgänglig och kan raderas;
+  se migreringsavsnittet i [README.md](../README.md). Ingen historik blandas.
   Använd dem för felsökning, inte som evcc:s `setMaxCurrent` eller
   `status`.
 - **`info`** — identitet från boxen (`info serial number`,
@@ -270,7 +274,7 @@ Inga hemligheter och inga IP-adresser från hemmanätet ska ligga i filen.
    **laddar** (status C) när så är fallet — inte bara vänta i evighet när
    evcc har slagit på laddningen och satt ett tak på minst 6 A.
 2. I Home Assistant: när evcc sätter till exempel 12 A ska
-   **`diag current setpoint sent`** följa evcc:s `evcc current limit`,
+   **`diag current limit sent`** följa evcc:s `evcc current limit`,
    och **`diag current offered by box`** ska närma sig samma värde när
    boxen har tagit emot kommandot.
 3. Slå på **`diag rs485 logging`**. I Director-loggen ska ett
@@ -285,7 +289,7 @@ Mer om 0x09 och mätramen finns i
 | Symptom | Vanlig orsak |
 |---------|----------------|
 | evcc står på *waiting* / väntar, trots inkopplad bil | `evcc charging enabled` är OFF tills evcc skriver (så är det vid boot). Kontrollera att evcc faktiskt slår på switchen och att `state charge` är B eller C, inte A eller F. |
-| Alltid 0 A, ingen laddning | `evcc current limit` startar på 0 A. evcc måste skriva ett tak ≥ 6 A. Kontrollera också att `diag current setpoint sent` följer, och med `diag rs485 logging` att 0x09 går ut på bussen. |
+| Alltid 0 A, ingen laddning | `evcc current limit` startar på 0 A. evcc måste skriva ett tak ≥ 6 A. Kontrollera också att `diag current limit sent` följer, och med `diag rs485 logging` att 0x09 går ut på bussen. |
 | Entity-id slutar på `_2` | Gamla entiteter efter namnbyte är kvar som otillgängliga. Ta bort dem under Tesla-Director och under boxenheterna, och peka evcc på id:t *utan* `_2`. |
 | Fel box (Inne och Ute ihopblandade) | `twc_0` / `0x9983` är S22 Garage Inne, `twc_1` / `0x8988` är S22 Garage Ute. Kontrollera entity-id och slot mot serienumret i `info serial number`. |
 | Checksummefel, trasiga ramar (`Checksum FAILED`) | RO/DI sitter på GPIO1/GPIO3 (UART0 / USB). Flytta dem till GPIO21/GPIO22 och sätt `rx_pin: GPIO21`, `tx_pin: GPIO22`. |

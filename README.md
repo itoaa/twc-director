@@ -172,19 +172,48 @@ Entitetsnamnen är på **engelska** och har formen `<prefix> <namn>` (betydelsen
 | Prefix | Betydelse | Skrivs av | Kategori i HA | Exempel |
 |--------|-----------|-----------|---------------|---------|
 | `evcc` | det evcc skriver/läser | evcc | normal | `evcc charging enabled`, `evcc current limit` |
-| `meter` | uppmätta värden, skrivskyddade | Director (RS-485) | normal | `meter current L1`, `meter voltage L1`, `meter power`, `meter energy total`, `meter energy session` |
+| `meter` | uppmätta värden, skrivskyddade | Director (RS-485) | normal | `meter current L1`, `meter current max phase`, `meter voltage L1`, `meter power`, `meter energy total`, `meter energy session` |
 | `state` | box-/bilstatus | Director (RS-485) | normal | `state charge` (A/B/C/F), `state charge text`, `state charging`, `state car connected`, `state VIN`, `state online`, `state mode`, `state contactor closed` |
 | `limit` | säkerhetstak som alltid gäller | du / YAML vid boot | config | `limit max current`, `limit global max current` |
 | `local` | låter Director köra utan evcc | du / YAML vid boot | config | `local start current`, `local current setpoint`, `local increase current`, `local decrease current` |
 | `system` | huvudbrytare och buss | du | config (`link ok`/`charging count` är vanliga sensorer) | `system master mode`, `system bus enabled`, `system link ok`, `system charging count` |
-| `diag` | felsökning | Director / du | diagnostic | `diag contactor`, `diag rs485 logging`, `diag watchdog ok`, `diag state raw`, `diag state log`, `diag current offered by box`, `diag current setpoint sent`, `diag max current reported by box`, `diag log level` |
+| `diag` | felsökning | Director / du | diagnostic | `diag contactor`, `diag rs485 logging`, `diag watchdog ok`, `diag state raw`, `diag state log`, `diag current offered by box`, `diag current limit sent`, `diag max current reported by box`, `diag log level` |
 | `info` | identitet | Director (RS-485) | diagnostic | `info serial number`, `info firmware` |
 
 Regler: **evcc-entiteter är aldrig `diag`/`config`** (de ska synas som vanliga entiteter). Standardnamnen sätts i komponenten (`_ensure_named_child` i `__init__.py`) och YAML-filerna använder samma namn. Boxarnas enhetsnamn styrs av `twc_0_name` / `twc_1_name` och är bundna till RS-485-adressen via `twc_N_address`.
 
 **Entity-id (härlett, inte avläst från en flashad enhet):** Home Assistant:s ESPHome-integration sätter `has_entity_name` och kopplar boxentiteterna till underenheten. Entity-id blir då `<domän>.<enhetsslug>_<entitetsslug>`. För enheten ”S22 Garage Ute” och entiteten ”evcc current limit” blir det `number.s22_garage_ute_evcc_current_limit`. Samma mönster finns i HA:s egna tester (enhet ”Motion Sensor” + entitet ”Motion” → `binary_sensor.motion_sensor_motion`). ESPHome:s `object_id` är bara det sanerade entitetsnamnet (`evcc_current_limit`); två boxar med samma namn krockar inte eftersom unique_id får suffix `@device_id`. Globala entiteter på huvudkortet blir t.ex. `switch.tesla_director_system_master_mode`. Byter du namn på enheten i HA ändras nya entity-id.
 
-> **Migrering:** den här ändringen ger **nya** entiteter (nytt namn och ny unique_id). Ta bort de gamla, otillgängliga under Tesla-Director (och ev. de nya underenheterna om något fått suffix `_2`). Uppdatera evcc:s fält till de nya id:na, se [docs/evcc-setup.md](docs/evcc-setup.md).
+> **Migrering (äldre namnstandard):** den tidigare översättningen till engelska namn gav **nya** entiteter (nytt namn och ny unique_id). Ta bort de gamla, otillgängliga under Tesla-Director (och ev. de nya underenheterna om något fått suffix `_2`). Uppdatera evcc:s fält till de nya id:na, se [docs/evcc-setup.md](docs/evcc-setup.md).
+
+### Migrering: `meter current max phase` och `diag current limit sent`
+
+**Hur entity_id och unique_id bildas.** De kommer från entitetsnamnet (`name:` i YAML), inte från YAML-nyckeln (`session_current_sensor` / `setpoint_sent_sensor`). Home Assistant:s ESPHome-integration sätter `has_entity_name` och slår ihop underenhetens namn med entitetsnamnet:
+
+```text
+entity_id  = <domän>.<enhetsslug>_<entitetsslug>
+unique_id  = <mac>-sensor-<object_id>@<device_id>
+object_id  = sanitiserat entitetsnamn (gemener, mellanslag → understreck)
+```
+
+`<mac>` är ESP:ns MAC, `<device_id>` är underenhetens nyckel (från `device_id: twc_0_device` / `twc_1_device`). Huvudkortets `esphome.name` (`tesla-director`) används inte som prefix på boxentiteterna. Exempel för enheten ”S22 Garage Ute”:
+
+| Roll | YAML-nyckel | `name:` | entity_id | unique_id |
+|------|-------------|---------|-----------|-----------|
+| **Före** (max av fasströmmarna, fel namn) | `session_current_sensor` | `diag current setpoint sent` | `sensor.s22_garage_ute_diag_current_setpoint_sent` | `<mac>-sensor-diag_current_setpoint_sent@<device_id>` |
+| **Efter** (samma mätvärde, rätt namn) | `session_current_sensor` | `meter current max phase` | `sensor.s22_garage_ute_meter_current_max_phase` | `<mac>-sensor-meter_current_max_phase@<device_id>` |
+| **Efter** (ny: applicerad 0x05/0x09-gräns) | `setpoint_sent_sensor` | `diag current limit sent` | `sensor.s22_garage_ute_diag_current_limit_sent` | `<mac>-sensor-diag_current_limit_sent@<device_id>` |
+
+Samma mönster för Inne: byt `s22_garage_ute` mot `s22_garage_inne` och `@<device_id>` mot den andra underenheten. Byter du enhetsnamn i HA ändras nya entity-id.
+
+Ingen sensor bildar längre object_id `diag_current_setpoint_sent`. Den gamla entiteten `sensor.<enhet>_diag_current_setpoint_sent` blir **otillgänglig** i Home Assistant efter flash och kan raderas. Den nya `diag current limit sent` får eget namn, eget entity_id och egen unique_id, så **ingen historik blandas**. `meter current max phase` startar med tom historik; den gamla max-fas-historiken ligger kvar på den otillgängliga posten tills du tar bort den.
+
+Gör så här vid uppgradering:
+
+1. Uppdatera YAML: byt `name` på `session_current_sensor` till `meter current max phase` och lägg till `setpoint_sent_sensor` med `name: "diag current limit sent"` (som i `tesla-director.yaml`). YAML-nyckeln `session_current_sensor` är oförändrad.
+2. Flashs. Ta bort den otillgängliga `sensor.<enhet>_diag_current_setpoint_sent` under boxenheten i HA (ingen dubblett med `_2` ska behövas för den nya sensorn).
+3. Innan första 0x05/0x09 gått ut på bussen visar `diag current limit sent` `unknown` (inte 0 A).
+4. evcc ska fortfarande inte skriva till de här sensorerna. Se [docs/evcc-setup.md](docs/evcc-setup.md).
 
 ### Home Assistant → evcc
 
